@@ -60,7 +60,7 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
     });
     if (this.onUserScript) {
       // 监听用户脚本的连接
-      chrome.runtime.onUserScriptConnect.addListener((port) => {
+      chrome.runtime.onUserScriptConnect?.addListener((port) => {
         const handler = (msg: any) => {
           port.onMessage.removeListener(handler);
           callback(msg, new ExtensionMessageConnect(port));
@@ -80,7 +80,7 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
     });
     if (this.onUserScript) {
       // 监听用户脚本的消息
-      chrome.runtime.onUserScriptMessage.addListener((msg, sender, sendResponse) => {
+      chrome.runtime.onUserScriptMessage?.addListener((msg, sender, sendResponse) => {
         if (msg.action === "messageQueue") {
           return false;
         }

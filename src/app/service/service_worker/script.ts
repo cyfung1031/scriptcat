@@ -40,8 +40,10 @@ export class ScriptService {
 
   listenerScriptInstall() {
     // 初始化脚本安装监听
+    console.log("init script install listener");
     chrome.webRequest.onBeforeRequest.addListener(
       (req: chrome.webRequest.WebRequestBodyDetails) => {
+        console.log(req);
         // 处理url, 实现安装脚本
         if (req.method !== "GET") {
           return;
@@ -72,12 +74,12 @@ export class ScriptService {
                     id: 2,
                     priority: 1,
                     action: {
-                      type: chrome.declarativeNetRequest.RuleActionType.ALLOW,
+                      type: "allow" as chrome.declarativeNetRequest.RuleActionType,
                     },
                     condition: {
                       regexFilter: targetUrl,
                       resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME],
-                      requestMethods: [chrome.declarativeNetRequest.RequestMethod.GET],
+                      requestMethods: ["get" as chrome.declarativeNetRequest.RequestMethod],
                     },
                   },
                 ],
@@ -101,9 +103,9 @@ export class ScriptService {
       },
       {
         urls: [
-          "https://docs.scriptcat.org/docs/script_installation/",
-          "https://docs.scriptcat.org/en/docs/script_installation/",
-          "https://www.tampermonkey.net/script_installation.php",
+          "https://docs.scriptcat.org/docs/script_installation/*",
+          "https://docs.scriptcat.org/en/docs/script_installation/*",
+          "https://www.tampermonkey.net/script_installation.php*",
         ],
         types: ["main_frame"],
       }
@@ -118,7 +120,7 @@ export class ScriptService {
             id: 1,
             priority: 1,
             action: {
-              type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+              type: "redirect" as chrome.declarativeNetRequest.RuleActionType,
               redirect: {
                 regexSubstitution: `https://docs.scriptcat.org${localePath}/docs/script_installation/#url=\\0`,
               },
@@ -126,7 +128,7 @@ export class ScriptService {
             condition: {
               regexFilter: "^([^#]+?)\\.user(\\.bg|\\.sub)?\\.js((\\?).*|$)",
               resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME],
-              requestMethods: [chrome.declarativeNetRequest.RequestMethod.GET],
+              requestMethods: ["get" as chrome.declarativeNetRequest.RequestMethod],
               // 排除常见的符合上述条件的域名
               excludedRequestDomains: ["github.com"],
             },
