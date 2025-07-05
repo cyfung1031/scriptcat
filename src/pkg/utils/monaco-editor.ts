@@ -1,22 +1,39 @@
-import { globalCache } from "@App/pages/store/global";
-import dts from "@App/template/scriptcat.d.tpl";
-import EventEmitter from "eventemitter3";
+// @ts-ignore
+// eslint-disable-next-line import/no-unresolved
+import dts from "@App/types/scriptcat";
+import Hook from "@App/app/service/hook";
 import { languages } from "monaco-editor";
+import pako from "pako";
+import Cache from "@App/app/cache";
+import { isFirefox } from "./utils";
 
 // 注册eslint
 const linterWorker = new Worker("/src/linter.worker.js");
 
 export default function registerEditor() {
+  // @ts-ignore
+  window.tsUrl = "";
+
+  fetch(chrome.runtime.getURL(`/src/ts.worker.js${isFirefox() ? ".gz" : ""}`))
+    .then((resp) => resp.blob())
+    .then(async (blob) => {
+      const result = pako.inflate(await blob.arrayBuffer());
+      // @ts-ignore
+      window.tsUrl = URL.createObjectURL(new Blob([result]));
+    });
+  // @ts-ignore
   window.MonacoEnvironment = {
     getWorkerUrl(moduleId: any, label: any) {
       if (label === "typescript" || label === "javascript") {
-        return "/src/ts.worker.js";
+        // return "/src/ts.worker.js";
+        // @ts-ignore
+        return window.tsUrl;
       }
       return "/src/editor.worker.js";
     },
   };
 
-  languages.typescript.javascriptDefaults.addExtraLib(dts, "scriptcat.d.ts");
+  languages.typescript.javascriptDefaults.addExtraLib(dts, "tampermonkey.d.ts");
 
   // 悬停提示
   const prompt: { [key: string]: any } = {
@@ -63,9 +80,13 @@ export default function registerEditor() {
 
   // 处理quick fix
   languages.registerCodeActionProvider("javascript", {
-    provideCodeActions: (model /** ITextModel */, range /** Range */, context /** CodeActionContext */) => {
+    provideCodeActions: (
+      model /** ITextModel */,
+      range /** Range */,
+      context /** CodeActionContext */
+    ) => {
       const actions: languages.CodeAction[] = [];
-      const eslintFix = <Map<string, any>>globalCache.get("eslint-fix");
+      const eslintFix = <Map<string, any>>Cache.getInstance().get("eslint-fix");
       for (let i = 0; i < context.markers.length; i += 1) {
         // 判断有没有修复方案
         const val = context.markers[i];
@@ -122,13 +143,13 @@ export default function registerEditor() {
 }
 
 export class LinterWorker {
-  static hook = new EventEmitter();
+  static hook = new Hook<"message">();
 
-  static sendLinterMessage(data: unknown) {
+  static sendLinterMessage(data: any) {
     linterWorker.postMessage(data);
   }
 }
 
 linterWorker.onmessage = (event) => {
-  LinterWorker.hook.emit("message", event.data);
+  LinterWorker.hook.trigger("message", event.data);
 };

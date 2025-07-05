@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Avatar,
   Button,
   Card,
   Divider,
@@ -17,7 +16,6 @@ import {
   Tooltip,
   Typography,
 } from "@arco-design/web-react";
-import { TbWorldWww } from "react-icons/tb";
 import { ColumnProps } from "@arco-design/web-react/es/Table";
 import { ComponentsProps } from "@arco-design/web-react/es/Table/interface";
 import {
@@ -30,7 +28,15 @@ import {
   ScriptDAO,
   UserConfig,
 } from "@App/app/repo/scripts";
-import { IconClockCircle, IconEdit, IconLink, IconMenu, IconSearch, IconUserAdd } from "@arco-design/web-react/icon";
+import {
+  IconClockCircle,
+  IconCommon,
+  IconEdit,
+  IconLink,
+  IconMenu,
+  IconSearch,
+  IconUserAdd,
+} from "@arco-design/web-react/icon";
 import {
   RiDeleteBin5Fill,
   RiPencilFill,
@@ -40,6 +46,7 @@ import {
   RiUploadCloudFill,
 } from "react-icons/ri";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import ScriptController from "@App/app/service/script/controller";
 import { RefInputType } from "@arco-design/web-react/es/Input/interface";
 import Text from "@arco-design/web-react/es/Typography/text";
 import {
@@ -52,40 +59,30 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import {
+  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import IoC from "@App/app/ioc";
+import RuntimeController from "@App/runtime/content/runtime";
 import UserConfigPanel from "@App/pages/components/UserConfigPanel";
 import CloudScriptPlan from "@App/pages/components/CloudScriptPlan";
+import SynchronizeController from "@App/app/service/synchronize/controller";
 import { useTranslation } from "react-i18next";
 import { nextTime, semTime } from "@App/pkg/utils/utils";
 import { i18nName } from "@App/locales/locales";
-import { ListHomeRender, ScriptIcons } from "./utils";
-import { useAppDispatch, useAppSelector } from "@App/pages/store/hooks";
+import { SystemConfig } from "@App/pkg/config/config";
 import {
-  requestEnableScript,
-  fetchScriptList,
-  requestDeleteScript,
-  ScriptLoading,
-  selectScripts,
-  sortScript,
-  requestStopScript,
-  requestRunScript,
-  scriptClient,
-  enableLoading,
-  updateEnableStatus,
-  synchronizeClient,
-  batchDeleteScript,
-} from "@App/pages/store/features/script";
-import { message, systemConfig } from "@App/pages/store/global";
-import { ValueClient } from "@App/app/service/service_worker/client";
-import { loadScriptFavicons } from "@App/pages/store/utils";
-import { store } from "@App/pages/store/store";
+  getValues,
+  ListHomeRender,
+  ScriptIcons,
+  scriptListSort,
+} from "./utils";
 
-type ListType = ScriptLoading;
+type ListType = Script & { loading?: boolean };
 
 function ScriptList() {
   const [userConfig, setUserConfig] = useState<{
@@ -94,27 +91,43 @@ function ScriptList() {
     values: { [key: string]: any };
   }>();
   const [cloudScript, setCloudScript] = useState<Script>();
-  const dispatch = useAppDispatch();
-  const scriptList = useAppSelector(selectScripts);
+  const scriptCtrl = IoC.instance(ScriptController) as ScriptController;
+  const synchronizeCtrl = IoC.instance(
+    SynchronizeController
+  ) as SynchronizeController;
+  const runtimeCtrl = IoC.instance(RuntimeController) as RuntimeController;
+  const [scriptList, setScriptList] = useState<ListType[]>([]);
   const inputRef = useRef<RefInputType>(null);
   const navigate = useNavigate();
-  const openUserConfig = useSearchParams()[0].get("userConfig") || "";
+  const openUserConfig = parseInt(
+    useSearchParams()[0].get("userConfig") || "",
+    10
+  );
   const [showAction, setShowAction] = useState(false);
   const [action, setAction] = useState("");
   const [select, setSelect] = useState<Script[]>([]);
   const [selectColumn, setSelectColumn] = useState(0);
+  const systemConfig = IoC.instance(SystemConfig) as SystemConfig;
+
   const { t } = useTranslation();
-  const [components, setComponents] = useState<ComponentsProps | undefined>(undefined);
-  const [dealColumns, setDealColumns] = useState<ColumnProps[]>([]);
 
   useEffect(() => {
-    dispatch(fetchScriptList()).then((action) => {
-      if (fetchScriptList.fulfilled.match(action)) {
-        // 在脚本列表加载完成后，加载favicon
-        loadScriptFavicons(action.payload);
-      }
+    // Monitor script running status
+    const channel = runtimeCtrl.watchRunStatus();
+    channel.setHandler(([id, status]: any) => {
+      setScriptList((list) => {
+        return list.map((item) => {
+          if (item.id === id) {
+            item.runStatus = status;
+          }
+          return item;
+        });
+      });
     });
-  }, [dispatch]);
+    return () => {
+      channel.disChannel();
+    };
+  }, []);
 
   const columns: ColumnProps[] = [
     {
@@ -124,9 +137,6 @@ function ScriptList() {
       key: "#",
       sorter: (a, b) => a.sort - b.sort,
       render(col) {
-        if (col < 0) {
-          return "-";
-        }
         return col + 1;
       },
     },
@@ -150,14 +160,34 @@ function ScriptList() {
         },
       ],
       onFilter: (value, row) => row.status === value,
-      render: (col, item: ScriptLoading) => {
+      render: (col, item: ListType) => {
         return (
           <Switch
             checked={item.status === SCRIPT_STATUS_ENABLE}
-            loading={item.enableLoading}
-            disabled={item.enableLoading}
+            loading={item.loading}
+            disabled={item.loading}
             onChange={(checked) => {
-              dispatch(requestEnableScript({ uuid: item.uuid, enable: checked }));
+              setScriptList((list) => {
+                const index = list.findIndex((script) => script.id === item.id);
+                list[index].loading = true;
+                let p: Promise<any>;
+                if (checked) {
+                  p = scriptCtrl.enable(item.id).then(() => {
+                    list[index].status = SCRIPT_STATUS_ENABLE;
+                  });
+                } else {
+                  p = scriptCtrl.disable(item.id).then(() => {
+                    list[index].status = SCRIPT_STATUS_DISABLE;
+                  });
+                }
+                p.catch((err) => {
+                  Message.error(err);
+                }).finally(() => {
+                  list[index].loading = false;
+                  setScriptList([...list]);
+                });
+                return list;
+              });
             }}
           />
         );
@@ -169,6 +199,7 @@ function ScriptList() {
       dataIndex: "name",
       sorter: (a, b) => a.name.localeCompare(b.name),
       filterIcon: <IconSearch />,
+      // eslint-disable-next-line react/no-unstable-nested-components
       filterDropdown: ({ filterKeys, setFilterKeys, confirm }: any) => {
         return (
           <div className="arco-table-custom-filter">
@@ -213,7 +244,7 @@ function ScriptList() {
         return (
           <Tooltip content={col} position="tl">
             <Link
-              to={`/script/editor/${item.uuid}`}
+              to={`/script/editor/${item.id}`}
               style={{
                 textDecoration: "none",
               }}
@@ -250,13 +281,13 @@ function ScriptList() {
       title: t("apply_to_run_status"),
       width: t("script_list_apply_to_run_status_width"),
       className: "apply_to_run_status",
-      render(col, item: ListType) {
+      render(col, item: Script) {
         const toLogger = () => {
           navigate({
             pathname: "logger",
             search: `query=${encodeURIComponent(
               JSON.stringify([
-                { key: "uuid", value: item.uuid },
+                { key: "scriptId", value: item.id },
                 {
                   key: "component",
                   value: "GM_log",
@@ -266,52 +297,29 @@ function ScriptList() {
           });
         };
         if (item.type === SCRIPT_TYPE_NORMAL) {
-          // 处理站点icon
           return (
-            <>
-              <Avatar.Group size={20}>
-                {item.favorite &&
-                  // 排序并且只显示前5个
-                  // 排序将有icon的放在前面
-                  [...item.favorite]
-                    .sort((a, b) => {
-                      if (a.icon && !b.icon) return -1;
-                      if (!a.icon && b.icon) return 1;
-                      return a.match.localeCompare(b.match);
-                    })
-                    .slice(0, 4)
-                    .map((fav) => (
-                      <Avatar
-                        key={fav.match}
-                        shape="square"
-                        style={{
-                          backgroundColor: "unset",
-                          borderWidth: 1,
-                        }}
-                        className={fav.website ? "cursor-pointer" : "cursor-default"}
-                        onClick={() => {
-                          if (fav.website) {
-                            window.open(fav.website, "_blank");
-                          }
-                        }}
-                      >
-                        {fav.icon ? (
-                          <img title={fav.match} src={fav.icon} />
-                        ) : (
-                          <TbWorldWww title={fav.match} color="#aaa" size={24} />
-                        )}
-                      </Avatar>
-                    ))}
-                {item.favorite && item.favorite.length > 4 && "..."}
-              </Avatar.Group>
-            </>
+            <Tooltip content={t("foreground_page_script_tooltip")}>
+              <Tag
+                style={{
+                  cursor: "pointer",
+                }}
+                icon={<IconCommon color="" />}
+                color="cyan"
+                bordered
+                onClick={toLogger}
+              >
+                {t("page_script")}
+              </Tag>
+            </Tooltip>
           );
         }
         let tooltip = "";
         if (item.type === SCRIPT_TYPE_BACKGROUND) {
           tooltip = t("background_script_tooltip");
         } else {
-          tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
+          tooltip = `${t("scheduled_script_tooltip")} ${nextTime(
+            item.metadata.crontab[0]
+          )}`;
         }
         return (
           <Tooltip content={tooltip}>
@@ -324,7 +332,9 @@ function ScriptList() {
               }}
               onClick={toLogger}
             >
-              {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
+              {item.runStatus === SCRIPT_RUN_STATUS_RUNNING
+                ? t("running")
+                : t("completed")}
             </Tag>
           </Tooltip>
         );
@@ -341,7 +351,8 @@ function ScriptList() {
             <Tooltip
               content={
                 <p style={{ margin: 0 }}>
-                  {t("subscription_link")}: {decodeURIComponent(item.subscribeUrl)}
+                  {t("subscription_link")}:{" "}
+                  {decodeURIComponent(item.subscribeUrl)}
                 </p>
               }
             >
@@ -429,6 +440,7 @@ function ScriptList() {
       sorter: (a, b) => a.updatetime - b.updatetime,
       render(col, script: Script) {
         return (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
           <span
             style={{
               cursor: "pointer",
@@ -442,10 +454,9 @@ function ScriptList() {
                 id: "checkupdate",
                 content: t("checking_for_updates"),
               });
-              scriptClient
-                .requestCheckUpdate(script.uuid)
+              scriptCtrl
+                .checkUpdate(script.id)
                 .then((res) => {
-                  console.log("res", res);
                   if (res) {
                     Message.warning({
                       id: "checkupdate",
@@ -476,10 +487,10 @@ function ScriptList() {
       dataIndex: "action",
       key: "action",
       width: 160,
-      render(col, item: ScriptLoading) {
+      render(col, item: Script) {
         return (
           <Button.Group>
-            <Link to={`/script/editor/${item.uuid}`}>
+            <Link to={`/script/editor/${item.id}`}>
               <Button
                 type="text"
                 icon={<RiPencilFill />}
@@ -492,13 +503,18 @@ function ScriptList() {
               title={t("confirm_delete_script")}
               icon={<RiDeleteBin5Fill />}
               onOk={() => {
-                dispatch(requestDeleteScript(item.uuid));
+                setScriptList((list) => {
+                  return list.filter((i) => i.id !== item.id);
+                });
+                scriptCtrl.delete(item.id).catch((e) => {
+                  Message.error(`${t("delete_failed")}: ${e}`);
+                });
               }}
             >
               <Button
                 type="text"
                 icon={<RiDeleteBin5Fill />}
-                loading={item.actionLoading}
+                onClick={() => {}}
                 style={{
                   color: "var(--color-text-2)",
                 }}
@@ -509,7 +525,8 @@ function ScriptList() {
                 type="text"
                 icon={<RiSettings3Fill />}
                 onClick={() => {
-                  new ValueClient(message).getScriptValue(item).then((newValues) => {
+                  // Get value
+                  getValues(item).then((newValues) => {
                     setUserConfig({
                       userConfig: { ...item.config! },
                       script: item,
@@ -522,42 +539,59 @@ function ScriptList() {
                 }}
               />
             )}
-            {item.type !== SCRIPT_TYPE_NORMAL && (
-              <Button
-                type="text"
-                icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
-                loading={item.actionLoading}
-                onClick={async () => {
-                  if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
+            {item.type !== SCRIPT_TYPE_NORMAL &&
+              (item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? (
+                <Button
+                  type="text"
+                  icon={<RiStopFill />}
+                  onClick={async () => {
                     // Stop script
                     Message.loading({
                       id: "script-stop",
                       content: t("stopping_script"),
                     });
-                    await dispatch(requestStopScript(item.uuid));
+                    await runtimeCtrl.stopScript(item.id);
                     Message.success({
                       id: "script-stop",
                       content: t("script_stopped"),
                       duration: 3000,
                     });
-                  } else {
+                  }}
+                  style={{
+                    color: "var(--color-text-2)",
+                  }}
+                />
+              ) : (
+                <Button
+                  type="text"
+                  icon={<RiPlayFill />}
+                  onClick={async () => {
+                    // Start script
                     Message.loading({
                       id: "script-run",
                       content: t("starting_script"),
                     });
-                    await dispatch(requestRunScript(item.uuid));
+                    await runtimeCtrl.startScript(item.id);
                     Message.success({
                       id: "script-run",
                       content: t("script_started"),
                       duration: 3000,
                     });
-                  }
-                }}
-                style={{
-                  color: "var(--color-text-2)",
-                }}
-              />
-            )}
+                    setScriptList((list) => {
+                      for (let i = 0; i < list.length; i += 1) {
+                        if (list[i].id === item.id) {
+                          list[i].runStatus = SCRIPT_RUN_STATUS_RUNNING;
+                          break;
+                        }
+                      }
+                      return [...list];
+                    });
+                  }}
+                  style={{
+                    color: "var(--color-text-2)",
+                  }}
+                />
+              ))}
             {item.metadata.cloudcat && (
               <Button
                 type="text"
@@ -578,30 +612,35 @@ function ScriptList() {
 
   const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
 
-  // 设置列和判断是否打开用户配置
   useEffect(() => {
-    if (openUserConfig) {
-      const dao = new ScriptDAO();
-      dao.get(openUserConfig).then((script) => {
-        if (script && script.config) {
-          new ValueClient(message).getScriptValue(script).then((values) => {
+    const dao = new ScriptDAO();
+    dao.table
+      .orderBy("sort")
+      .toArray()
+      .then(async (scripts) => {
+        // Sort when a new script is added (-1)
+        scriptListSort(scripts);
+        // Open user config panel
+        if (openUserConfig) {
+          const script = scripts.find((item) => item.id === openUserConfig);
+          if (script && script.config) {
             setUserConfig({
               script,
-              userConfig: script.config!,
-              values: values,
+              userConfig: script.config,
+              values: await getValues(script),
             });
-          });
+          }
         }
+        setScriptList(scripts);
       });
-    }
-    systemConfig.getScriptListColumnWidth().then((columnWidth) => {
-      setNewColumns(
-        columns.map((item) => {
-          item.width = columnWidth[item.key!] ?? item.width;
-          return item;
-        })
-      );
-    });
+
+    setNewColumns(
+      columns.map((item) => {
+        item.width =
+          systemConfig.scriptListColumnWidth[item.key!] ?? item.width;
+        return item;
+      })
+    );
   }, []);
 
   // 处理拖拽排序
@@ -612,99 +651,100 @@ function ScriptList() {
     })
   );
 
-  useEffect(() => {
-    if (!newColumns.length) {
-      return;
-    }
-    const SortableWrapper = (props: any, ref: any) => {
-      return (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={(event: DragEndEvent) => {
-            const { active, over } = event;
-            if (!over) {
-              return;
-            }
-            if (active.id !== over.id) {
+  // eslint-disable-next-line react/no-unstable-nested-components
+  const SortableWrapper = (props: any, ref: any) => {
+    return (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={(event: DragEndEvent) => {
+          const { active, over } = event;
+          if (!over) {
+            return;
+          }
+          if (active.id !== over.id) {
+            setScriptList((items) => {
               let oldIndex = 0;
               let newIndex = 0;
-              store.getState().script.scripts.forEach((item, index) => {
-                if (item.uuid === active.id) {
+              items.forEach((item, index) => {
+                if (item.id === active.id) {
                   oldIndex = index;
-                } else if (item.uuid === over.id) {
+                } else if (item.id === over.id) {
                   newIndex = index;
                 }
               });
-              dispatch(sortScript({ active: active.id as string, over: over.id as string }));
-            }
-          }}
+              const newItems = arrayMove(items, oldIndex, newIndex);
+              scriptListSort(newItems);
+              return newItems;
+            });
+          }
+        }}
+      >
+        <SortableContext
+          items={scriptList}
+          strategy={verticalListSortingStrategy}
         >
-          <SortableContext
-            items={store.getState().script.scripts.map((s) => ({ ...s, id: s.uuid }))}
-            strategy={verticalListSortingStrategy}
-          >
-            <table ref={ref} {...props} />
-          </SortableContext>
-        </DndContext>
-      );
-    };
-    const dealColumns: ColumnProps[] = [];
+          <table ref={ref} {...props} />
+        </SortableContext>
+      </DndContext>
+    );
+  };
 
-    newColumns.forEach((item) => {
-      switch (item.width) {
-        case -1:
-          break;
-        default:
-          dealColumns.push(item);
-          break;
-      }
-    });
+  const dealColumns: ColumnProps[] = [];
 
-    const sortIndex = dealColumns.findIndex((item) => item.key === "sort");
-    let SortableItem;
-    if (sortIndex !== -1) {
-      SortableItem = (props: any) => {
-        const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
-
-        const style = {
-          transform: CSS.Transform.toString(transform),
-          transition,
-        };
-
-        // 替换排序列,使其可以拖拽
-        props.children[sortIndex + 1] = (
-          <td
-            className="arco-table-td"
-            style={{
-              textAlign: "center",
-            }}
-            key="drag"
-          >
-            <div className="arco-table-cell">
-              <IconMenu
-                style={{
-                  cursor: "move",
-                }}
-                {...listeners}
-              />
-            </div>
-          </td>
-        );
-
-        return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
-      };
+  newColumns.forEach((item) => {
+    switch (item.width) {
+      case -1:
+        break;
+      default:
+        dealColumns.push(item);
+        break;
     }
+  });
 
-    setComponents({
-      table: React.forwardRef(SortableWrapper),
-      body: {
-        // tbody: SortableWrapper,
-        row: SortableItem,
-      },
-    });
-    setDealColumns(dealColumns);
-  }, [newColumns]);
+  const sortIndex = dealColumns.findIndex((item) => item.key === "sort");
+
+  // eslint-disable-next-line react/no-unstable-nested-components
+  const SortableItem = (props: any) => {
+    const { attributes, listeners, setNodeRef, transform, transition } =
+      useSortable({ id: props!.record.id });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+
+    // 替换排序列,使其可以拖拽
+    // eslint-disable-next-line react/destructuring-assignment
+    props.children[sortIndex + 1] = (
+      <td
+        className="arco-table-td"
+        style={{
+          textAlign: "center",
+        }}
+        key="drag"
+      >
+        <div className="arco-table-cell">
+          <IconMenu
+            style={{
+              cursor: "move",
+            }}
+            {...listeners}
+          />
+        </div>
+      </td>
+    );
+
+    return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
+  };
+
+  const components: ComponentsProps = {
+    table: React.forwardRef(SortableWrapper),
+    body: {
+      // tbody: SortableWrapper,
+      row: SortableItem,
+    },
+  };
 
   return (
     <Card
@@ -734,22 +774,11 @@ function ScriptList() {
                     setAction(value);
                   }}
                 >
-                  <Select.Option key={"enable"} value="enable">
-                    {t("enable")}
-                  </Select.Option>
-                  <Select.Option key={"disable"} value="disable">
-                    {t("disable")}
-                  </Select.Option>
-                  <Select.Option key={"export"} value="export">
-                    {t("export")}
-                  </Select.Option>
-                  <Select.Option key={"delete"} value="delete">
-                    {t("delete")}
-                  </Select.Option>
-                  <Select.Option key={"pin_to_top"} value="pin_to_top">
-                    {t("pin_to_top")}
-                  </Select.Option>
-                  <Select.Option key={"check_update"} value="check_update">
+                  <Select.Option value="enable">{t("enable")}</Select.Option>
+                  <Select.Option value="disable">{t("disable")}</Select.Option>
+                  <Select.Option value="export">{t("export")}</Select.Option>
+                  <Select.Option value="delete">{t("delete")}</Select.Option>
+                  <Select.Option value="check_update">
                     {t("check_update")}
                   </Select.Option>
                 </Select>
@@ -757,67 +786,57 @@ function ScriptList() {
                   type="primary"
                   size="mini"
                   onClick={() => {
-                    const enableAction = (enable: boolean) => {
-                      const uuids = select.map((item) => item.uuid);
-                      dispatch(enableLoading({ uuids: uuids, loading: true }));
-                      Promise.allSettled(uuids.map((uuid) => scriptClient.enable(uuid, enable))).finally(() => {
-                        dispatch(updateEnableStatus({ uuids: uuids, enable: enable }));
-                        dispatch(enableLoading({ uuids: uuids, loading: false }));
-                      });
-                    };
+                    const ids: number[] = [];
                     switch (action) {
                       case "enable":
-                        enableAction(true);
+                        select.forEach((item) => {
+                          scriptCtrl.enable(item.id).then(() => {
+                            const list = scriptList.map((script) => {
+                              if (script.id === item.id) {
+                                script.status = SCRIPT_STATUS_ENABLE;
+                              }
+                              return script;
+                            });
+                            setScriptList(list);
+                          });
+                        });
                         break;
                       case "disable":
-                        enableAction(false);
+                        select.forEach((item) => {
+                          scriptCtrl.disable(item.id).then(() => {
+                            const list = scriptList.map((script) => {
+                              if (script.id === item.id) {
+                                script.status = SCRIPT_STATUS_DISABLE;
+                              }
+                              return script;
+                            });
+                            setScriptList(list);
+                          });
+                        });
                         break;
                       case "export":
-                        const uuids: string[] = [];
                         select.forEach((item) => {
-                          uuids.push(item.uuid);
+                          ids.push(item.id);
                         });
-                        Message.loading({
-                          id: "export",
-                          content: t("exporting"),
-                        });
-                        synchronizeClient.export(uuids).then(() => {
-                          Message.success({
-                            id: "export",
-                            content: t("export_success"),
-                            duration: 3000,
-                          });
-                        });
+                        synchronizeCtrl.backup(ids);
                         break;
                       case "delete":
-                        if (confirm(t("list.confirm_delete"))) {
-                          const uuids = select.map((item) => item.uuid);
-                          dispatch(batchDeleteScript(uuids));
-                          Promise.allSettled(uuids.map((uuid) => scriptClient.delete(uuid)));
-                        }
-                        break;
-                      case "pin_to_top":
-                        // 将选中的脚本置顶
-                        if (select.length > 0) {
-                          // 获取当前所有脚本列表
-                          const currentScripts = store.getState().script.scripts;
-                          // 将选中的脚本依次置顶（从后往前，保持选中脚本之间的相对顺序）
-                          [...select].reverse().forEach((script) => {
-                            // 找到脚本当前的位置
-                            const scriptIndex = currentScripts.findIndex(s => s.uuid === script.uuid);
-                            if (scriptIndex > 0) { // 如果不是已经在最顶部
-                              // 将脚本置顶（移动到第一个位置）
-                              dispatch(sortScript({ active: script.uuid, over: currentScripts[0].uuid }));
-                            }
-                          });
-                          Message.success({
-                            content: t("scripts_pinned_to_top"),
-                            duration: 3000,
+                        // eslint-disable-next-line no-restricted-globals, no-alert
+                        if (confirm(t("list.confirm_delete")!)) {
+                          select.forEach((item) => {
+                            scriptCtrl.delete(item.id).then(() => {
+                              setScriptList((list) => {
+                                return list.filter((script) => {
+                                  return script.id !== item.id;
+                                });
+                              });
+                            });
                           });
                         }
                         break;
                       // 批量检查更新
                       case "check_update":
+                        // eslint-disable-next-line no-restricted-globals, no-alert
                         if (confirm(t("list.confirm_update")!)) {
                           select.forEach((item, index, array) => {
                             if (!item.checkUpdateUrl) {
@@ -827,14 +846,16 @@ function ScriptList() {
                               id: "checkupdateStart",
                               content: t("starting_updates"),
                             });
-                            scriptClient
-                              .requestCheckUpdate(item.uuid)
+                            scriptCtrl
+                              .checkUpdate(item.id)
                               .then((res) => {
                                 if (res) {
                                   // 需要更新
                                   Message.warning({
                                     id: "checkupdate",
-                                    content: `${i18nName(item)} ${t("new_version_available")}`,
+                                    content: `${i18nName(item)} ${t(
+                                      "new_version_available"
+                                    )}`,
                                   });
                                 }
                                 if (index === array.length - 1) {
@@ -848,7 +869,9 @@ function ScriptList() {
                               .catch((e) => {
                                 Message.error({
                                   id: "checkupdate",
-                                  content: `${t("update_check_failed")}: ${e.message}`,
+                                  content: `${t("update_check_failed")}: ${
+                                    e.message
+                                  }`,
                                 });
                               });
                           });
@@ -874,9 +897,7 @@ function ScriptList() {
                   }}
                 >
                   {newColumns.map((column, index) => (
-                    <Select.Option key={index} value={index}>
-                      {column.title}
-                    </Select.Option>
+                    <Select.Option value={index}>{column.title}</Select.Option>
                   ))}
                 </Select>
                 <Dropdown
@@ -923,7 +944,12 @@ function ScriptList() {
                   position="bl"
                 >
                   <Input
-                    type={newColumns[selectColumn].width === 0 || newColumns[selectColumn].width === -1 ? "" : "number"}
+                    type={
+                      newColumns[selectColumn].width === 0 ||
+                      newColumns[selectColumn].width === -1
+                        ? ""
+                        : "number"
+                    }
                     style={{ width: "80px" }}
                     size="mini"
                     value={
@@ -931,8 +957,8 @@ function ScriptList() {
                       newColumns[selectColumn].width === 0
                         ? t("auto")
                         : newColumns[selectColumn].width === -1
-                          ? t("hide")
-                          : newColumns[selectColumn].width?.toString()
+                        ? t("hide")
+                        : newColumns[selectColumn].width?.toString()
                     }
                     onChange={(val) => {
                       setNewColumns((cols) => {
@@ -950,7 +976,7 @@ function ScriptList() {
                     newColumns.forEach((column) => {
                       newWidth[column.key! as string] = column.width as number;
                     });
-                    systemConfig.setScriptListColumnWidth(newWidth);
+                    systemConfig.scriptListColumnWidth = newWidth;
                   }}
                 >
                   {t("save")}
@@ -984,9 +1010,9 @@ function ScriptList() {
         <Table
           className="arco-drag-table-container"
           components={components}
-          rowKey="uuid"
+          rowKey="id"
           tableLayoutFixed
-          columns={dealColumns.length ? dealColumns : columns}
+          columns={dealColumns}
           data={scriptList}
           pagination={{
             total: scriptList.length,
@@ -1005,7 +1031,11 @@ function ScriptList() {
           }}
         />
         {userConfig && (
-          <UserConfigPanel script={userConfig.script} userConfig={userConfig.userConfig} values={userConfig.values} />
+          <UserConfigPanel
+            script={userConfig.script}
+            userConfig={userConfig.userConfig}
+            values={userConfig.values}
+          />
         )}
         <CloudScriptPlan
           script={cloudScript}

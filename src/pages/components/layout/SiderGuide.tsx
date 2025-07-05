@@ -2,9 +2,12 @@ import React, { useEffect, useImperativeHandle, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Joyride, { Step } from "react-joyride";
 import { Path, useLocation, useNavigate } from "react-router-dom";
-import CustomTrans from "../CustomTrans";
+import { CustomTrans } from "..";
 
-const SiderGuide: React.ForwardRefRenderFunction<{ open: () => void }, object> = (_props, ref) => {
+const SiderGuide: React.ForwardRefRenderFunction<{ open: () => void }, {}> = (
+  _props,
+  ref
+) => {
   const { t } = useTranslation();
   const [stepIndex, setStepIndex] = useState(0);
   const [initRoute, setInitRoute] = useState<Partial<Path>>({ pathname: "/" });
@@ -18,12 +21,9 @@ const SiderGuide: React.ForwardRefRenderFunction<{ open: () => void }, object> =
     // 首次使用时，打开引导
     if (localStorage.getItem("firstUse") === null) {
       localStorage.setItem("firstUse", "false");
-      // 隐身模式不打开引导
-      if (!chrome.extension.inIncognitoContext) {
-        setRun(true);
-      }
+      setRun(true);
     }
-  }, []);
+  });
 
   const steps: Array<Step> = [
     {
@@ -98,7 +98,11 @@ const SiderGuide: React.ForwardRefRenderFunction<{ open: () => void }, object> =
   return (
     <Joyride
       callback={(data) => {
-        if (data.action === "stop" || data.action === "close" || data.status === "finished") {
+        if (
+          data.action === "stop" ||
+          data.action === "close" ||
+          data.status === "finished"
+        ) {
           setRun(false);
           setStepIndex(0);
           gotoNavigate(initRoute);

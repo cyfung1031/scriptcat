@@ -1,11 +1,12 @@
+/* eslint-disable no-nested-ternary */
 import React, { useEffect, useState } from "react";
+import MessageInternal from "@App/app/message/internal";
+import { MessageSender } from "@App/app/message/message";
+import { ScriptMenu } from "@App/runtime/background/runtime";
 import {
   Button,
   Collapse,
   Empty,
-  Form,
-  Input,
-  InputNumber,
   Message,
   Popconfirm,
   Space,
@@ -20,16 +21,14 @@ import {
   IconMinus,
   IconSettings,
 } from "@arco-design/web-react/icon";
+import IoC from "@App/app/ioc";
+import ScriptController from "@App/app/service/script/controller";
 import { SCRIPT_RUN_STATUS_RUNNING } from "@App/app/repo/scripts";
 import { RiPlayFill, RiStopFill } from "react-icons/ri";
+import RuntimeController from "@App/runtime/content/runtime";
 import { useTranslation } from "react-i18next";
+import { SystemConfig } from "@App/pkg/config/config";
 import { ScriptIcons } from "@App/pages/options/routes/utils";
-import { ScriptMenu, ScriptMenuItem } from "@App/app/service/service_worker/popup";
-import { useAppSelector } from "@App/pages/store/hooks";
-import { popupClient, runtimeClient, scriptClient } from "@App/pages/store/features/script";
-import { i18nName } from "@App/locales/locales";
-import { subscribeScriptRunStatus } from "@App/app/service/queue";
-import { messageQueue, systemConfig } from "@App/pages/store/global";
 
 const CollapseItem = Collapse.Item;
 
@@ -38,7 +37,7 @@ function isExclude(script: ScriptMenu, host: string) {
     return false;
   }
   for (let i = 0; i < script.customExclude.length; i += 1) {
-    if (script.customExclude[i] === `*://${host}/*`) {
+    if (script.customExclude[i] === `*://${host}*`) {
       return true;
     }
   }
@@ -52,75 +51,76 @@ const ScriptMenuList: React.FC<{
   currentUrl: string;
 }> = ({ script, isBackscript, currentUrl }) => {
   const [list, setList] = useState([] as ScriptMenu[]);
+  const message = IoC.instance(MessageInternal) as MessageInternal;
+  const scriptCtrl = IoC.instance(ScriptController) as ScriptController;
+  const runtimeCtrl = IoC.instance(RuntimeController) as RuntimeController;
+  const systemConfig = IoC.instance(SystemConfig) as SystemConfig;
   const [expandMenuIndex, setExpandMenuIndex] = useState<{
     [key: string]: boolean;
   }>({});
   const { t } = useTranslation();
-  const [menuExpandNum, setMenuExpandNum] = useState(5);
 
   let url: URL;
   try {
     url = new URL(currentUrl);
-  } catch (e: any) {
-    console.error("Invalid URL:", e);
+  } catch (e) {
+    // ignore error
   }
   useEffect(() => {
     setList(script);
-    // 注册菜单快捷键
-    const listeners: ((e: KeyboardEvent) => void)[] = [];
-    script.forEach((item) => {
-      item.menus.forEach((menu) => {
-        if (menu.options?.accessKey) {
-          const listener = (e: KeyboardEvent) => {
-            if (e.key.toUpperCase() === menu.options!.accessKey!.toUpperCase()) {
-              sendMenuAction(item.uuid, menu);
-            }
-          };
-          document.addEventListener("keypress", listener);
-          listeners.push(listener);
-        }
-      });
-    });
-    return () => {
-      listeners.forEach((listener) => {
-        document.removeEventListener("keypress", listener);
-      });
-    };
   }, [script]);
 
   useEffect(() => {
     // 监听脚本运行状态
-    const unsub = subscribeScriptRunStatus(messageQueue, ({ uuid, runStatus }) => {
+    const channel = runtimeCtrl.watchRunStatus();
+    channel.setHandler(([id, status]: any) => {
       setList((prev) => {
         const newList = [...prev];
-        const index = newList.findIndex((item) => item.uuid === uuid);
+        const index = newList.findIndex((item) => item.id === id);
         if (index !== -1) {
-          newList[index].runStatus = runStatus;
+          newList[index].runStatus = status;
         }
         return newList;
       });
     });
-    // 获取配置
-    systemConfig.getMenuExpandNum().then((num) => {
-      setMenuExpandNum(num);
-    });
     return () => {
-      unsub();
+      channel.disChannel();
     };
   }, []);
 
+  const sendMenuAction = (sender: MessageSender, channelFlag: string) => {
+    let id = sender.tabId;
+    if (sender.frameId) {
+      id = sender.frameId;
+    }
+    message.broadcastChannel(
+      {
+        tag: sender.targetTag,
+        id: [id!],
+      },
+      channelFlag,
+      "click"
+    );
+    window.close();
+  };
+  // 监听菜单按键
+
+  // 菜单展开
+
   return (
     <>
-      {list.length === 0 && <Empty description={t("no_data")} />}
+      {list.length === 0 && <Empty />}
       {list.map((item, index) => (
-        <Collapse bordered={false} expandIconPosition="right" key={item.uuid}>
+        <Collapse bordered={false} expandIconPosition="right" key={item.id}>
           <CollapseItem
             header={
+              // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
               <div
                 onClick={(e) => {
                   e.stopPropagation();
                 }}
                 title={
+                  // eslint-disable-next-line no-nested-ternary
                   item.enable
                     ? item.runNumByIframe
                       ? t("script_total_runs", {
@@ -136,15 +136,21 @@ const ScriptMenuList: React.FC<{
                     size="small"
                     checked={item.enable}
                     onChange={(checked) => {
-                      scriptClient
-                        .enable(item.uuid, checked)
-                        .then(() => {
-                          item.enable = checked;
-                          setList([...list]);
-                        })
-                        .catch((err) => {
-                          Message.error(err);
+                      let p: Promise<any>;
+                      if (checked) {
+                        p = scriptCtrl.enable(item.id).then(() => {
+                          item.enable = true;
                         });
+                      } else {
+                        p = scriptCtrl.disable(item.id).then(() => {
+                          item.enable = false;
+                        });
+                      }
+                      p.catch((err) => {
+                        Message.error(err);
+                      }).finally(() => {
+                        setList([...list]);
+                      });
                     }}
                   />
                   <span
@@ -158,12 +164,12 @@ const ScriptMenuList: React.FC<{
                     }}
                   >
                     <ScriptIcons script={item} size={20} />
-                    {i18nName(item)}
+                    {item.name}
                   </span>
                 </Space>
               </div>
             }
-            name={item.uuid}
+            name={item.id.toString()}
             contentStyle={{ padding: "0 0 0 40px" }}
           >
             <div className="flex flex-col">
@@ -171,16 +177,24 @@ const ScriptMenuList: React.FC<{
                 <Button
                   className="text-left"
                   type="secondary"
-                  icon={item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? <RiPlayFill /> : <RiStopFill />}
+                  icon={
+                    item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? (
+                      <RiPlayFill />
+                    ) : (
+                      <RiStopFill />
+                    )
+                  }
                   onClick={() => {
                     if (item.runStatus !== SCRIPT_RUN_STATUS_RUNNING) {
-                      runtimeClient.runScript(item.uuid);
+                      runtimeCtrl.startScript(item.id);
                     } else {
-                      runtimeClient.stopScript(item.uuid);
+                      runtimeCtrl.stopScript(item.id);
                     }
                   }}
                 >
-                  {item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? t("run_once") : t("stop")}
+                  {item.runStatus !== SCRIPT_RUN_STATUS_RUNNING
+                    ? t("run_once")
+                    : t("stop")}
                 </Button>
               )}
               <Button
@@ -188,7 +202,10 @@ const ScriptMenuList: React.FC<{
                 type="secondary"
                 icon={<IconEdit />}
                 onClick={() => {
-                  window.open(`/src/options.html#/script/editor/${item.uuid}`, "_blank");
+                  window.open(
+                    `/src/options.html#/script/editor/${item.id}`,
+                    "_blank"
+                  );
                   window.close();
                 }}
               >
@@ -201,12 +218,20 @@ const ScriptMenuList: React.FC<{
                   type="secondary"
                   icon={<IconMinus />}
                   onClick={() => {
-                    scriptClient.excludeUrl(item.uuid, `*://${url.host}/*`, isExclude(item, url.host)).finally(() => {
-                      window.close();
-                    });
+                    scriptCtrl
+                      .exclude(
+                        item.id,
+                        `*://${url.host}*`,
+                        isExclude(item, url.host)
+                      )
+                      .finally(() => {
+                        window.close();
+                      });
                   }}
                 >
-                  {isExclude(item, url.host) ? t("exclude_on") : t("exclude_off")}
+                  {isExclude(item, url.host)
+                    ? t("exclude_on")
+                    : t("exclude_off")}
                   {` ${url.host} ${t("exclude_execution")}`}
                 </Button>
               )}
@@ -214,35 +239,64 @@ const ScriptMenuList: React.FC<{
                 title={t("confirm_delete_script")}
                 icon={<IconDelete />}
                 onOk={() => {
-                  setList(list.filter((i) => i.uuid !== item.uuid));
-                  scriptClient.delete(item.uuid).catch((e) => {
+                  setList(list.filter((i) => i.id !== item.id));
+                  scriptCtrl.delete(item.id).catch((e) => {
                     Message.error(`{t('delete_failed')}: ${e}`);
                   });
                 }}
               >
-                <Button className="text-left" status="danger" type="secondary" icon={<IconDelete />}>
+                <Button
+                  className="text-left"
+                  status="danger"
+                  type="secondary"
+                  icon={<IconDelete />}
+                >
                   {t("delete")}
                 </Button>
               </Popconfirm>
             </div>
           </CollapseItem>
-          <div className="arco-collapse-item-content-box flex flex-col" style={{ padding: "0 0 0 40px" }}>
+          <div
+            className="arco-collapse-item-content-box flex flex-col"
+            style={{ padding: "0 0 0 40px" }}
+          >
             {/* 判断菜单数量，再判断是否展开 */}
-            {(item.menus.length > menuExpandNum
+            {(item.menus && item.menus?.length > systemConfig.menuExpandNum
               ? expandMenuIndex[index]
                 ? item.menus
-                : item.menus?.slice(0, menuExpandNum)
+                : item.menus?.slice(0, systemConfig.menuExpandNum)
               : item.menus
             )?.map((menu) => {
-              console.log("menu", menu);
-              return <MenuItem key={menu.id} menu={menu} uuid={item.uuid} />;
+              if (menu.accessKey) {
+                document.addEventListener("keypress", (e) => {
+                  if (e.key.toUpperCase() === menu.accessKey!.toUpperCase()) {
+                    sendMenuAction(menu.sender, menu.channelFlag);
+                  }
+                });
+              }
+              return (
+                <Button
+                  className="text-left"
+                  key={menu.id}
+                  type="secondary"
+                  icon={<IconMenu />}
+                  onClick={() => {
+                    sendMenuAction(menu.sender, menu.channelFlag);
+                  }}
+                >
+                  {menu.name}
+                  {menu.accessKey && `(${menu.accessKey.toUpperCase()})`}
+                </Button>
+              );
             })}
-            {item.menus.length > menuExpandNum && (
+            {item.menus && item.menus?.length > systemConfig.menuExpandNum && (
               <Button
                 className="text-left"
                 key="expand"
                 type="secondary"
-                icon={expandMenuIndex[index] ? <IconCaretUp /> : <IconCaretDown />}
+                icon={
+                  expandMenuIndex[index] ? <IconCaretUp /> : <IconCaretDown />
+                }
                 onClick={() => {
                   setExpandMenuIndex({
                     ...expandMenuIndex,
@@ -260,7 +314,10 @@ const ScriptMenuList: React.FC<{
                 type="secondary"
                 icon={<IconSettings />}
                 onClick={() => {
-                  window.open(`/src/options.html#/?userConfig=${item.uuid}`, "_blank");
+                  window.open(
+                    `/src/options.html#/?userConfig=${item.id}`,
+                    "_blank"
+                  );
                   window.close();
                 }}
               >
@@ -271,74 +328,6 @@ const ScriptMenuList: React.FC<{
         </Collapse>
       ))}
     </>
-  );
-};
-
-const sendMenuAction = (uuid: string, menu: ScriptMenuItem, inputValue?: any) => {
-  popupClient.menuClick(uuid, menu, inputValue).then(() => {
-    menu.options?.autoClose !== false && window.close();
-  });
-};
-
-const FormItem = Form.Item;
-
-type MenuItemProps = {
-  menu: ScriptMenuItem;
-  uuid: string;
-};
-
-const MenuItem: React.FC<MenuItemProps> = ({ menu, uuid }) => {
-  const initialValue = menu.options?.inputDefaultValue;
-
-  const InputMenu = (() => {
-    const placeholder = menu.options?.inputPlaceholder;
-
-    switch (menu.options?.inputType) {
-      case "text":
-        return <Input type="text" placeholder={placeholder} />;
-      case "number":
-        return <InputNumber placeholder={placeholder} />;
-      case "boolean":
-        return <Switch defaultChecked={initialValue as boolean} />;
-      default:
-        return null;
-    }
-  })();
-
-  return (
-    <Form
-      initialValues={{ inputValue: initialValue }}
-      size="small"
-      labelCol={{ flex: "none" }}
-      wrapperCol={{ flex: "none" }}
-      autoComplete="off"
-      onSubmit={(v) => {
-        const inputValue = v.inputValue;
-        console.log(v);
-        sendMenuAction(uuid, menu, inputValue);
-      }}
-    >
-      <Button
-        className="text-left"
-        type="secondary"
-        htmlType="submit"
-        icon={<IconMenu />}
-        title={menu.options?.title}
-        style={{ display: "block", width: "100%" }}
-      >
-        {menu.name}
-        {menu.options?.accessKey && `(${menu.options.accessKey.toUpperCase()})`}
-      </Button>
-      {InputMenu && (
-        <FormItem
-          label={menu.options?.inputLabel}
-          field="inputValue"
-          style={{ marginTop: 5, marginBottom: 5, paddingLeft: 20 }}
-        >
-          {InputMenu}
-        </FormItem>
-      )}
-    </Form>
   );
 };
 

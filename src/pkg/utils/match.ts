@@ -1,24 +1,11 @@
-import Logger from "@App/app/logger/logger";
+/* eslint-disable max-classes-per-file */
 
-export interface Url {
-  scheme: string;
-  host: string;
-  path: string;
-  search: string;
-}
+import Logger from "@App/app/logger/logger";
 
 export default class Match<T> {
   protected cache = new Map<string, T[]>();
 
   protected rule = new Map<string, T[]>();
-
-  protected kv = new Map<string, T>();
-
-  forEach(fn: (val: T, key: string) => void) {
-    this.kv.forEach((val, key) => {
-      fn(val, key);
-    });
-  }
 
   protected parseURL(url: string): Url | undefined {
     if (url.indexOf("*http") === 0) {
@@ -36,7 +23,6 @@ export default class Match<T> {
     // 处理一些特殊情况
     switch (url) {
       case "*":
-      case "http*":
         return {
           scheme: "*",
           host: "*",
@@ -44,19 +30,6 @@ export default class Match<T> {
           search: "*",
         };
       default:
-        // 无*://的情况
-        if (!url.includes("://")) {
-          // 直接转为通配符
-          const match = /^(.*?)((\/.*?)(\?.*?|)|)$/.exec(url);
-          if (match) {
-            return {
-              scheme: "*",
-              host: match[1],
-              path: match[3] || (url[url.length - 1] === "*" ? "*" : "/"),
-              search: match[4],
-            };
-          }
-        }
     }
     return undefined;
   }
@@ -75,10 +48,25 @@ export default class Match<T> {
         break;
       default:
     }
+    let pos = u.host.indexOf("*");
+    if (u.host === "*" || u.host === "**") {
+      pos = -1;
+    } else if (u.host.endsWith("*")) {
+      // 处理*结尾
+      if (!u.host.endsWith(":*")) {
+        u.host = u.host.substring(0, u.host.length - 1);
+      }
+    } else if (pos !== -1 && pos !== 0) {
+      return "";
+    }
     u.host = u.host.replace(/\*/g, "[^/]*?");
     // 处理 *.开头
     if (u.host.startsWith("[^/]*?.")) {
       u.host = `([^/]*?\\.?)${u.host.substring(7)}`;
+    } else if (pos !== -1) {
+      if (u.host.indexOf(".") === -1) {
+        return "";
+      }
     }
     // 处理顶域
     if (u.host.endsWith("tld")) {
@@ -108,36 +96,18 @@ export default class Match<T> {
     return `${re.replace(/\//g, "/")}$`;
   }
 
-  addRegex(re: string, val: T) {
+  public add(url: string, val: T) {
+    const re = this.compileRe(url);
+    if (!re) {
+      throw new Error(`invalid url: ${url}`);
+    }
     let rule = this.rule.get(re);
     if (!rule) {
       rule = [];
       this.rule.set(re, rule);
     }
     rule.push(val);
-    this.kv.set(Match.getId(val), val);
     this.delCache();
-  }
-
-  public add(url: string, val: T) {
-    // 判断是不是一个正则
-    if (url.startsWith("/^") || url.endsWith("$/")) {
-      // 删除开头和结尾的/
-      if (url.startsWith("/")) {
-        url = url.substring(1);
-      }
-      if (url.endsWith("/")) {
-        url = url.substring(0, url.length - 1);
-      }
-      this.addRegex(url, val);
-      return;
-    }
-    const re = this.compileRe(url);
-    if (!re) {
-      console.warn("add failed: bad rule", { url, val });
-      return;
-    }
-    this.addRegex(re, val);
   }
 
   public match(url: string): T[] {
@@ -146,29 +116,30 @@ export default class Match<T> {
       return ret;
     }
     ret = [];
-    this.rule.forEach((val, key) => {
-      try {
+    try {
+      this.rule.forEach((val, key) => {
         const re = new RegExp(key);
         if (re.test(url) && ret) {
           ret.push(...val);
         }
-      } catch (e) {
-        console.warn("match failed: bad rule", { val }, Logger.E(e));
-        // LoggerCore.getLogger({ component: "match" }).warn(
-        //   "bad match rule",
-        //   Logger.E(e)
-        // );
-      }
-    });
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("bad match rule", Logger.E(e));
+      // LoggerCore.getLogger({ component: "match" }).warn(
+      //   "bad match rule",
+      //   Logger.E(e)
+      // );
+    }
     this.cache.set(url, ret);
     return ret;
   }
 
   protected static getId(val: any): string {
-    if (typeof val === "string") {
-      return val;
+    if (typeof val === "object") {
+      return (<{ id: string }>(<unknown>val)).id;
     }
-    return (<{ uuid: string }>(<unknown>val)).uuid;
+    return <string>(<unknown>val);
   }
 
   public del(val: T) {
@@ -191,13 +162,6 @@ export default class Match<T> {
 
   protected delCache() {
     this.cache.clear();
-  }
-
-  public sort(compareFn: ((a: T, b: T) => number) | undefined) {
-    this.delCache();
-    this.rule.forEach((rules) => {
-      rules.sort(compareFn);
-    });
   }
 }
 
@@ -241,136 +205,66 @@ export class UrlMatch<T> extends Match<T> {
   }
 }
 
-export interface PatternMatchesUrl {
+export interface Url {
   scheme: string;
   host: string;
   path: string;
+  search: string;
 }
 
-// 解析URL, 根据https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns?hl=zh-cn进行处理
-// 将一些异常情况直接转为通配，用最大的范围去注册userScript，在执行的时候再用UrlMatch去匹配过滤
-export function parsePatternMatchesURL(
-  url: string,
-  options?: {
-    exclude?: boolean;
+export class UrlInclude<T> extends UrlMatch<T> {
+  protected parseURL(url: string): Url | undefined {
+    const ret = super.parseURL(url);
+    if (ret) {
+      return ret;
+    }
+    if (url === "http*") {
+      return { scheme: "*", host: "*", path: "*", search: "*" };
+    }
+    const match = /^(.*?)((\/.*?)(\?.*?|)|)$/.exec(url);
+    if (match) {
+      return {
+        scheme: "*",
+        host: match[1],
+        path: match[3] || (url[url.length - 1] === "*" ? "*" : "/"),
+        search: match[4],
+      };
+    }
+    return undefined;
   }
-): PatternMatchesUrl | undefined {
-  // 如果是正则，处理成通配
-  if (url.startsWith("/^") || url.endsWith("$/")) {
-    return {
-      scheme: "*",
-      host: "*",
-      path: "*",
-    };
-  }
-  let result: PatternMatchesUrl | undefined;
-  const match = /^(.+?):\/\/(.*?)(\/(.*?)(\?.*?|)|)$/.exec(url);
-  if (match) {
-    result = {
-      scheme: match[1],
-      host: match[2],
-      path: match[4] || (url[url.length - 1] === "*" ? "*" : ""),
-    };
-  } else {
-    // 处理一些特殊情况
-    switch (url) {
+
+  protected compileRe(url: string): string {
+    const u = this.parseURL(url);
+    if (!u) {
+      return "";
+    }
+    switch (u.scheme) {
       case "*":
+        u.scheme = ".+?";
+        break;
       case "http*":
-        result = {
-          scheme: "*",
-          host: "*",
-          path: "*",
-        };
+        u.scheme = "http[s]?";
         break;
       default:
-        // 无*://的情况
-        if (!url.includes("*://")) {
-          // 直接转为通配符
-          const match = /^(.+?)(\/(.*?)(\?.*?|)|)$/.exec(url);
-          if (match) {
-            result = {
-              scheme: "*",
-              host: match[1],
-              path: match[3] || (url[url.length - 1] === "*" ? "*" : ""),
-            };
-          }
-        }
     }
-  }
-  if (result) {
-    if (result.scheme === "http*") {
-      result.scheme = "*";
+    u.host = u.host.replace(/\*/g, "[^/]*?");
+    // 处理 *.开头
+    if (u.host.startsWith("[^/]*?.")) {
+      u.host = `([^/]*?.?)${u.host.substring(7)}`;
     }
-    if (result.host !== "*") {
-      // *开头但是不是*.的情况
-      if (result.host.startsWith("*")) {
-        if (!result.host.startsWith("*.")) {
-          // 删除开头的*号
-          result.host = result.host.slice(1);
-        }
-      }
-      // 结尾是*的情况
-      if (result.host.endsWith("*")) {
-        result.host = "*";
-      }
-      // 结尾是.的情况
-      if (result.host.endsWith(".")) {
-        result.host = result.host.slice(0, -1);
-      }
-      // 处理 www.*.example.com 的情况为 *.example.com
-      const pos = result.host.lastIndexOf("*");
-      if (pos > 0 && pos < result.host.length - 1) {
-        if (options && options.exclude) {
-          // 如果是exclude, 按最小匹配处理
-          // 包括*也去掉
-          result.host = result.host.substring(pos + 1);
-          if (result.host.startsWith(".")) {
-            result.host = result.host.substring(1);
-          }
-        } else {
-          // 如果不是exclude
-          // 将*前面的全部去掉
-          result.host = result.host.substring(pos);
-        }
-      }
+    // 处理顶域
+    if (u.host.endsWith("tld")) {
+      u.host = `${u.host.substring(0, u.host.length - 3)}.*?`;
     }
-  }
-  // 如果host存在端口, 则将端口换成通配符
-  const pos = result?.host.indexOf(":");
-  if (pos !== undefined && pos !== -1) {
-    result!.host = `${result!.host.substring(0, pos)}:*`;
-  }
-  // 如果host以.tld结尾
-  if (result?.host.endsWith(".tld")) {
-    result.host = "*";
-  }
-  return result;
-}
-
-// 处理油猴的match和include为chrome的pattern-matche
-export function dealPatternMatches(
-  matches: string[],
-  options?: {
-    exclude?: boolean;
-  }
-) {
-  const patternResult: string[] = [];
-  const result: string[] = [];
-  for (let i = 0; i < matches.length; i++) {
-    const url = parsePatternMatchesURL(matches[i], options);
-    if (url) {
-      // 如果存在search，那么以*结尾
-      if (matches[i].includes("?")) {
-        if (!url.path.endsWith("*")) {
-          url.path += "*";
-        }
-      }
-      patternResult.push(`${url.scheme}://${url.host}/${url.path}`);
-      result.push(matches[i]);
+    let re = `^${u.scheme}://${u.host}`;
+    if (u.path === "/") {
+      re += "[/]?";
+    } else {
+      re += u.path.replace(/\*/g, ".*?");
     }
+    if (u.search) {
+      re += u.search.replace(/([\\?])/g, "\\$1").replace(/\*/g, ".*?");
+    }
+    return `${re.replace(/\//g, "/")}$`;
   }
-  return {
-    patternResult,
-    result,
-  };
 }

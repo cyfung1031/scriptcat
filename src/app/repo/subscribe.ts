@@ -1,4 +1,4 @@
-import { Repo } from "./repo";
+import { DAO, db } from "./dao";
 
 export type Metadata = { [key: string]: string[] };
 
@@ -12,6 +12,7 @@ export interface SubscribeScript {
 }
 
 export interface Subscribe {
+  id: number;
   url: string;
   name: string;
   code: string;
@@ -24,16 +25,15 @@ export interface Subscribe {
   checktime: number;
 }
 
-export class SubscribeDAO extends Repo<Subscribe> {
+export class SubscribeDAO extends DAO<Subscribe> {
+  public tableName = "subscribe";
+
   constructor() {
-    super("subscribe");
+    super();
+    this.table = db.table(this.tableName);
   }
 
   public findByUrl(url: string) {
-    return this.get(url);
-  }
-
-  public save(val: Subscribe) {
-    return super._save(val.url, val);
+    return this.findOne({ url });
   }
 }

@@ -2,14 +2,28 @@ import React, { useEffect, useState } from "react";
 import { Permission } from "@App/app/repo/permission";
 import { Script } from "@App/app/repo/scripts";
 import { useTranslation } from "react-i18next";
-import { Space, Popconfirm, Message, Button, Checkbox, Input, Modal, Select, Typography } from "@arco-design/web-react";
+import IoC from "@App/app/ioc";
+import PermissionController from "@App/app/service/permission/controller";
+import {
+  Space,
+  Popconfirm,
+  Message,
+  Button,
+  Checkbox,
+  Input,
+  Modal,
+  Select,
+  Typography,
+} from "@arco-design/web-react";
 import Table, { ColumnProps } from "@arco-design/web-react/es/Table";
 import { IconDelete } from "@arco-design/web-react/icon";
-import { permissionClient } from "@App/pages/store/features/script";
 
 const PermissionManager: React.FC<{
   script: Script;
 }> = ({ script }) => {
+  const permissionCtrl = IoC.instance(
+    PermissionController
+  ) as PermissionController;
   const [permission, setPermission] = useState<Permission[]>([]);
   const [permissionVisible, setPermissionVisible] = useState<boolean>(false);
   const [permissionValue, setPermissionValue] = useState<Permission>();
@@ -47,15 +61,14 @@ const PermissionManager: React.FC<{
             <Popconfirm
               title={t("confirm_delete_permission")}
               onOk={() => {
-                permissionClient
-                  .deletePermission(script.uuid, item.permission, item.permissionValue)
+                permissionCtrl
+                  .deletePermission(script!.id, {
+                    permission: item.permission,
+                    permissionValue: item.permissionValue,
+                  })
                   .then(() => {
                     Message.success(t("delete_success")!);
-                    setPermission(
-                      permission.filter(
-                        (i) => !(i.permission == item.permission && i.permissionValue == item.permissionValue)
-                      )
-                    );
+                    setPermission(permission.filter((i) => i.id !== item.id));
                   })
                   .catch(() => {
                     Message.error(t("delete_failed")!);
@@ -72,7 +85,7 @@ const PermissionManager: React.FC<{
 
   useEffect(() => {
     if (script) {
-      permissionClient.getScriptPermissions(script.uuid).then((list) => {
+      permissionCtrl.getPermissions(script.id).then((list) => {
         setPermission(list);
       });
     }
@@ -87,17 +100,20 @@ const PermissionManager: React.FC<{
         onOk={() => {
           if (permissionValue) {
             permission.push({
-              uuid: script.uuid,
+              id: 0,
+              scriptId: script.id,
               permission: permissionValue.permission,
               permissionValue: permissionValue.permissionValue,
               allow: permissionValue.allow,
               createtime: new Date().getTime(),
               updatetime: 0,
             });
-            permissionClient.addPermission(permissionValue).then(() => {
-              setPermission([...permission]);
-              setPermissionVisible(false);
-            });
+            permissionCtrl
+              .addPermission(script.id, permissionValue)
+              .then(() => {
+                setPermission([...permission]);
+                setPermissionVisible(false);
+              });
           }
         }}
       >
@@ -105,22 +121,27 @@ const PermissionManager: React.FC<{
           <Select
             value={permissionValue?.permission}
             onChange={(e) => {
-              permissionValue && setPermissionValue({ ...permissionValue, permission: e });
+              permissionValue &&
+                setPermissionValue({ ...permissionValue, permission: e });
             }}
           >
             <Select.Option value="cors">{t("permission_cors")}</Select.Option>
-            <Select.Option value="cookie">{t("permission_cookie")}</Select.Option>
+            <Select.Option value="cookie">
+              {t("permission_cookie")}
+            </Select.Option>
           </Select>
           <Input
             value={permissionValue?.permissionValue}
             onChange={(e) => {
-              permissionValue && setPermissionValue({ ...permissionValue, permissionValue: e });
+              permissionValue &&
+                setPermissionValue({ ...permissionValue, permissionValue: e });
             }}
           />
           <Checkbox
             checked={permissionValue?.allow}
             onChange={(e) => {
-              permissionValue && setPermissionValue({ ...permissionValue, allow: e });
+              permissionValue &&
+                setPermissionValue({ ...permissionValue, allow: e });
             }}
           >
             {t("allow")}
@@ -128,14 +149,17 @@ const PermissionManager: React.FC<{
         </Space>
       </Modal>
       <div className="flex flex-row justify-between pb-2">
-        <Typography.Title heading={6}>{t("permission_management")}</Typography.Title>
+        <Typography.Title heading={6}>
+          {t("permission_management")}
+        </Typography.Title>
         <Space>
           <Button
             type="primary"
             size="small"
             onClick={() => {
               setPermissionValue({
-                uuid: script.uuid,
+                id: 0,
+                scriptId: script.id,
                 permission: "cors",
                 permissionValue: "",
                 allow: true,
@@ -150,7 +174,7 @@ const PermissionManager: React.FC<{
           <Popconfirm
             title={t("confirm_reset")}
             onOk={() => {
-              permissionClient.resetPermission(script.uuid).then(() => {
+              permissionCtrl.resetPermission(script.id).then(() => {
                 setPermission([]);
               });
             }}
@@ -161,7 +185,12 @@ const PermissionManager: React.FC<{
           </Popconfirm>
         </Space>
       </div>
-      <Table columns={columns} data={permission} rowKey="id" pagination={false} />
+      <Table
+        columns={columns}
+        data={permission}
+        rowKey="id"
+        pagination={false}
+      />
     </>
   );
 };

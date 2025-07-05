@@ -16,7 +16,7 @@ export default class ChromeStorage {
     return new Promise((resolve) => {
       key = this.buildKey(key);
       this.storage.get(key, (items) => {
-        resolve(items && items[key]);
+        resolve(items[key]);
       });
     });
   }

@@ -8,16 +8,19 @@ import {
   SCRIPT_TYPE_BACKGROUND,
   SCRIPT_TYPE_CRONTAB,
   SCRIPT_TYPE_NORMAL,
-  ScriptAndCode,
-  ScriptCode,
-  ScriptCodeDAO,
   ScriptDAO,
   UserConfig,
 } from "@App/app/repo/scripts";
 import YAML from "yaml";
-import { Subscribe, SUBSCRIBE_STATUS_ENABLE, SubscribeDAO, Metadata as SubMetadata } from "@App/app/repo/subscribe";
+import {
+  Subscribe,
+  SUBSCRIBE_STATUS_ENABLE,
+  SubscribeDAO,
+} from "@App/app/repo/subscribe";
+import Logger from "@App/app/logger/logger";
+import LoggerCore from "@App/app/logger/core";
+import { InstallSource } from "@App/app/service/script/manager";
 import { nextTime } from "./utils";
-import { InstallSource } from "@App/app/service/service_worker";
 
 export function getMetadataStr(code: string): string | null {
   const start = code.indexOf("==UserScript==");
@@ -87,7 +90,7 @@ export function parseUserConfig(code: string): UserConfig | undefined {
   const ret: UserConfig = {};
   configs.forEach((val) => {
     const obj: UserConfig = YAML.parse(val);
-    Object.keys(obj || {}).forEach((key) => {
+    Object.keys(obj).forEach((key) => {
       ret[key] = obj[key];
     });
   });
@@ -98,16 +101,16 @@ export type ScriptInfo = {
   url: string;
   code: string;
   uuid: string;
-  userSubscribe: boolean;
+  isSubscribe: boolean;
+  isUpdate: boolean;
   metadata: Metadata;
-  update: boolean;
   source: InstallSource;
 };
 
 export async function fetchScriptInfo(
   url: string,
   source: InstallSource,
-  update: boolean,
+  isUpdate: boolean,
   uuid: string
 ): Promise<ScriptInfo> {
   const resp = await fetch(url, {
@@ -123,24 +126,28 @@ export async function fetchScriptInfo(
   }
 
   const body = await resp.text();
-  const parse = parseMetadata(body);
-  if (!parse) {
+  const ok = parseMetadata(body);
+  if (!ok) {
     throw new Error("parse script info failed");
   }
   const ret: ScriptInfo = {
     url,
     code: body,
-    source,
-    update,
     uuid,
-    userSubscribe: parse.usersubscribe !== undefined,
-    metadata: parse,
+    isSubscribe: false,
+    isUpdate,
+    metadata: ok,
+    source,
   };
+  if (ok.usersubscribe) {
+    ret.isSubscribe = true;
+  }
   return ret;
 }
 
 export function copyScript(script: Script, old: Script): Script {
   const ret = script;
+  ret.id = old.id;
   ret.uuid = old.uuid;
   ret.createtime = old.createtime;
   ret.lastruntime = old.lastruntime;
@@ -157,7 +164,7 @@ export function copyScript(script: Script, old: Script): Script {
 
 export function copySubscribe(sub: Subscribe, old: Subscribe): Subscribe {
   const ret = sub;
-  ret.url = old.url;
+  ret.id = old.id;
   ret.scripts = old.scripts;
   ret.createtime = old.createtime;
   ret.status = old.status;
@@ -192,6 +199,24 @@ export function base64ToBlob(dataURI: string) {
   return new Blob([intArray], { type: mimeString });
 }
 
+export function base64ToStr(base64: string): string {
+  try {
+    return decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => {
+          return `%${`00${c.charCodeAt(0).toString(16)}`.slice(-2)}`;
+        })
+        .join("")
+    );
+  } catch (e) {
+    LoggerCore.getInstance()
+      .logger({ utils: "base64ToStr" })
+      .debug("base64 to string failed", Logger.E(e));
+  }
+  return "";
+}
+
 export function strToBase64(str: string): string {
   return btoa(
     encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1: string) => {
@@ -205,10 +230,9 @@ export function prepareScriptByCode(
   code: string,
   url: string,
   uuid?: string,
-  override?: boolean,
-  dao?: ScriptDAO
-): Promise<{ script: Script; oldScript?: Script; oldScriptCode?: string }> {
-  dao = dao || new ScriptDAO();
+  override?: boolean
+): Promise<{ script: Script; oldScript?: Script }> {
+  const dao = new ScriptDAO();
   return new Promise((resolve, reject) => {
     const metadata = parseMetadata(code);
     if (metadata == null) {
@@ -228,7 +252,7 @@ export function prepareScriptByCode(
       type = SCRIPT_TYPE_CRONTAB;
       try {
         nextTime(metadata.crontab[0]);
-      } catch {
+      } catch (e) {
         throw new Error(`错误的定时表达式,请检查: ${metadata.crontab[0]}`);
       }
     } else if (metadata.background !== undefined) {
@@ -257,8 +281,10 @@ export function prepareScriptByCode(
       newUUID = uuidv4();
     }
     let script: Script = {
+      id: 0,
       uuid: newUUID,
       name: metadata.name[0],
+      code,
       author: metadata.author && metadata.author[0],
       namespace: metadata.namespace && metadata.namespace[0],
       originDomain: domain,
@@ -278,9 +304,8 @@ export function prepareScriptByCode(
     };
     const handler = async () => {
       let old: Script | undefined;
-      let oldCode: ScriptCode | undefined;
       if (uuid) {
-        old = await dao.get(uuid);
+        old = await dao.findByUUID(uuid);
         if (!old && override) {
           old = await dao.findByNameAndNamespace(script.name, script.namespace);
         }
@@ -289,18 +314,14 @@ export function prepareScriptByCode(
       }
       if (old) {
         if (
-          (old.type === SCRIPT_TYPE_NORMAL && script.type !== SCRIPT_TYPE_NORMAL) ||
-          (script.type === SCRIPT_TYPE_NORMAL && old.type !== SCRIPT_TYPE_NORMAL)
+          (old.type === SCRIPT_TYPE_NORMAL &&
+            script.type !== SCRIPT_TYPE_NORMAL) ||
+          (script.type === SCRIPT_TYPE_NORMAL &&
+            old.type !== SCRIPT_TYPE_NORMAL)
         ) {
           reject(new Error("脚本类型不匹配,普通脚本与后台脚本不能互相转变"));
           return;
         }
-        const scriptCode = await new ScriptCodeDAO().get(old.uuid);
-        if (!scriptCode) {
-          reject(new Error("旧的脚本代码不存在"));
-          return;
-        }
-        oldCode = scriptCode;
         script = copyScript(script, old);
       } else {
         // 前台脚本默认开启
@@ -309,7 +330,7 @@ export function prepareScriptByCode(
         }
         script.checktime = new Date().getTime();
       }
-      resolve({ script, oldScript: old, oldScriptCode: oldCode?.code });
+      resolve({ script, oldScript: old });
     };
     handler();
   });
@@ -320,20 +341,21 @@ export async function prepareSubscribeByCode(
   url: string
 ): Promise<{ subscribe: Subscribe; oldSubscribe?: Subscribe }> {
   const dao = new SubscribeDAO();
-  const metadata = parseMetadata(code) as SubMetadata;
-  if (!metadata) {
+  const metadata = parseMetadata(code);
+  if (metadata == null) {
     throw new Error("MetaData信息错误");
   }
   if (metadata.name === undefined) {
     throw new Error("订阅名不能为空");
   }
   let subscribe: Subscribe = {
+    id: 0,
     url,
     name: metadata.name[0],
     code,
-    author: (metadata.author && metadata.author[0]) || "",
+    author: metadata.author && metadata.author[0],
     scripts: {},
-    metadata: metadata,
+    metadata,
     status: SUBSCRIBE_STATUS_ENABLE,
     createtime: Date.now(),
     updatetime: Date.now(),
@@ -343,5 +365,5 @@ export async function prepareSubscribeByCode(
   if (old) {
     subscribe = copySubscribe(subscribe, old);
   }
-  return { subscribe, oldSubscribe: old };
+  return Promise.resolve({ subscribe, oldSubscribe: old });
 }

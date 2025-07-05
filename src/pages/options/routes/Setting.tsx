@@ -1,35 +1,44 @@
-import { useEffect, useState } from "react";
-import { Button, Card, Checkbox, Input, Message, Select, Space } from "@arco-design/web-react";
+import React, { useState } from "react";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Input,
+  Message,
+  Select,
+  Space,
+} from "@arco-design/web-react";
+import FileSystemParams from "@App/pages/components/FileSystemParams";
+import { SystemConfig } from "@App/pkg/config/config";
+import IoC from "@App/app/ioc";
+import FileSystemFactory, { FileSystemType } from "@Pkg/filesystem/factory";
 import Title from "@arco-design/web-react/es/Typography/title";
 import { IconQuestionCircleFill } from "@arco-design/web-react/icon";
-import prettier from "prettier/standalone";
-import * as babel from "prettier/parser-babel";
-import prettierPluginEstree from "prettier/plugins/estree";
+// eslint-disable-next-line import/no-extraneous-dependencies, import/no-import-module-exports
+import { format } from "prettier";
+// eslint-disable-next-line import/no-extraneous-dependencies, import/no-import-module-exports
+import babel from "prettier/parser-babel";
 import GMApiSetting from "@App/pages/components/GMApiSetting";
 import i18n from "@App/locales/locales";
 import { useTranslation } from "react-i18next";
+import dayjs from "dayjs";
 import Logger from "@App/app/logger/logger";
-import FileSystemFactory, { FileSystemType } from "@Packages/filesystem/factory";
-import FileSystemParams from "@App/pages/components/FileSystemParams";
-import { systemConfig } from "@App/pages/store/global";
-import { parsePatternMatchesURL } from "@App/pkg/utils/match";
 
 function Setting() {
-  const [syncDelete, setSyncDelete] = useState<boolean>();
-  const [syncScriptStatus, setSyncScriptStatus] = useState<boolean>();
-  const [enableCloudSync, setEnableCloudSync] = useState<boolean>();
-  const [fileSystemType, setFilesystemType] = useState<FileSystemType>("webdav");
+  const systemConfig = IoC.instance(SystemConfig) as SystemConfig;
+  const [syncDelete, setSyncDelete] = useState<boolean>(
+    systemConfig.cloudSync.syncDelete
+  );
+  const [enableCloudSync, setEnableCloudSync] = useState(
+    systemConfig.cloudSync.enable
+  );
+  const [fileSystemType, setFilesystemType] = useState<FileSystemType>(
+    systemConfig.cloudSync.filesystem
+  );
   const [fileSystemParams, setFilesystemParam] = useState<{
     [key: string]: any;
-  }>({});
+  }>(systemConfig.cloudSync.params[fileSystemType] || {});
   const [language, setLanguage] = useState(i18n.language);
-  const [menuExpandNum, setMenuExpandNum] = useState(5);
-  const [checkScriptUpdateCycle, setCheckScriptUpdateCycle] = useState(0);
-  const [updateDisableScript, setUpdateDisableScript] = useState(false);
-  const [silenceUpdateScript, setSilenceUpdateScript] = useState(false);
-  const [enableEslint, setEnableEslint] = useState(false);
-  const [eslintConfig, setEslintConfig] = useState("");
-  const [blacklist, setBlacklist] = useState<string>("");
   const languageList: { key: string; title: string }[] = [];
   const { t } = useTranslation();
   Object.keys(i18n.store.data).forEach((key) => {
@@ -45,48 +54,6 @@ function Setting() {
     key: "help",
     title: t("help_translate"),
   });
-
-  useEffect(() => {
-    const loadConfigs = async () => {
-      const [
-        cloudSync,
-        menuExpandNum,
-        checkCycle,
-        updateDisabled,
-        silenceUpdate,
-        eslintConfig,
-        enableEslint,
-        language,
-        blacklist,
-      ] = await Promise.all([
-        systemConfig.getCloudSync(),
-        systemConfig.getMenuExpandNum(),
-        systemConfig.getCheckScriptUpdateCycle(),
-        systemConfig.getUpdateDisableScript(),
-        systemConfig.getSilenceUpdateScript(),
-        systemConfig.getEslintConfig(),
-        systemConfig.getEnableEslint(),
-        systemConfig.getLanguage(),
-        systemConfig.getBlacklist(),
-      ]);
-
-      setSyncDelete(cloudSync.syncDelete);
-      setSyncScriptStatus(cloudSync.syncStatus);
-      setEnableCloudSync(cloudSync.enable);
-      setFilesystemType(cloudSync.filesystem);
-      setFilesystemParam(cloudSync.params[cloudSync.filesystem] || {});
-      setMenuExpandNum(menuExpandNum);
-      setCheckScriptUpdateCycle(checkCycle);
-      setUpdateDisableScript(updateDisabled);
-      setSilenceUpdateScript(silenceUpdate);
-      setEslintConfig(eslintConfig);
-      setEnableEslint(enableEslint);
-      setLanguage(language);
-      setBlacklist(blacklist);
-    };
-
-    loadConfigs();
-  }, []);
 
   return (
     <Space
@@ -108,11 +75,16 @@ function Setting() {
               className="w-24"
               onChange={(value) => {
                 if (value === "help") {
-                  window.open("https://crowdin.com/project/scriptcat", "_blank");
+                  window.open(
+                    "https://crowdin.com/project/scriptcat",
+                    "_blank"
+                  );
                   return;
                 }
                 setLanguage(value);
-                systemConfig.setLanguage(value);
+                i18n.changeLanguage(value);
+                dayjs.locale(value.toLocaleLowerCase());
+                localStorage.language = value;
                 Message.success(t("language_change_tip")!);
               }}
             >
@@ -128,11 +100,9 @@ function Setting() {
             <Input
               style={{ width: "64px" }}
               type="number"
-              value={menuExpandNum.toString()}
+              defaultValue={systemConfig.menuExpandNum.toString()}
               onChange={(val) => {
-                const num = parseInt(val, 10);
-                setMenuExpandNum(num);
-                systemConfig.setMenuExpandNum(num);
+                systemConfig.menuExpandNum = parseInt(val, 10);
               }}
             />
             {t("menu_expand_num_after")}
@@ -141,24 +111,14 @@ function Setting() {
       </Card>
       <Card className="sync" title={t("script_sync")} bordered={false}>
         <Space direction="vertical">
-          <Space direction="horizontal">
-            <Checkbox
-              checked={syncDelete}
-              onChange={(checked) => {
-                setSyncDelete(checked);
-              }}
-            >
-              {t("sync_delete")}
-            </Checkbox>
-            <Checkbox
-              checked={syncScriptStatus}
-              onChange={(checked) => {
-                setSyncScriptStatus(checked);
-              }}
-            >
-              {t("sync_status")}
-            </Checkbox>
-          </Space>
+          <Checkbox
+            checked={syncDelete}
+            onChange={(checked) => {
+              setSyncDelete(checked);
+            }}
+          >
+            {t("sync_delete")}
+          </Checkbox>
           <FileSystemParams
             preNode={
               <Checkbox
@@ -180,22 +140,27 @@ function Setting() {
                   if (enableCloudSync) {
                     Message.info(t("cloud_sync_account_verification")!);
                     try {
-                      await FileSystemFactory.create(fileSystemType, fileSystemParams);
+                      await FileSystemFactory.create(
+                        fileSystemType,
+                        fileSystemParams
+                      );
                     } catch (e) {
-                      Message.error(`${t("cloud_sync_verification_failed")}: ${JSON.stringify(Logger.E(e))}`);
+                      Message.error(
+                        `${t(
+                          "cloud_sync_verification_failed"
+                        )}: ${JSON.stringify(Logger.E(e))}`
+                      );
                       return;
                     }
                   }
-                  const cloudSync = await systemConfig.getCloudSync();
-                  const params = { ...cloudSync.params };
+                  const params = { ...systemConfig.backup.params };
                   params[fileSystemType] = fileSystemParams;
-                  systemConfig.setCloudSync({
-                    enable: enableCloudSync || false,
-                    syncDelete: syncDelete || false,
-                    syncStatus: syncScriptStatus || false,
+                  systemConfig.cloudSync = {
+                    enable: enableCloudSync,
+                    syncDelete,
                     filesystem: fileSystemType,
                     params,
-                  });
+                  };
                   Message.success(t("save_success")!);
                 }}
               >
@@ -218,14 +183,12 @@ function Setting() {
           <Space>
             <span>{t("script_subscription_check_interval")}:</span>
             <Select
-              value={checkScriptUpdateCycle.toString()}
+              defaultValue={systemConfig.checkScriptUpdateCycle.toString()}
               style={{
                 width: 120,
               }}
               onChange={(value) => {
-                const num = parseInt(value, 10);
-                setCheckScriptUpdateCycle(num);
-                systemConfig.setCheckScriptUpdateCycle(num);
+                systemConfig.checkScriptUpdateCycle = parseInt(value, 10);
               }}
             >
               <Select.Option value="0">{t("never")}</Select.Option>
@@ -237,63 +200,30 @@ function Setting() {
           </Space>
           <Checkbox
             onChange={(checked) => {
-              setEnableCloudSync(checked);
-              systemConfig.setUpdateDisableScript(checked);
+              systemConfig.updateDisableScript = checked;
             }}
-            checked={updateDisableScript}
+            defaultChecked={systemConfig.updateDisableScript}
           >
             {t("update_disabled_scripts")}
           </Checkbox>
           <Checkbox
             onChange={(checked) => {
-              setSilenceUpdateScript(checked);
-              systemConfig.setSilenceUpdateScript(checked);
+              systemConfig.silenceUpdateScript = checked;
             }}
-            checked={silenceUpdateScript}
+            defaultChecked={systemConfig.silenceUpdateScript}
           >
             {t("silent_update_non_critical_changes")}
           </Checkbox>
         </Space>
       </Card>
       <GMApiSetting />
-      <Card title={t("security")} bordered={false}>
-        <Space direction="vertical" className="w-full">
-          <span>{t("blacklist_pages")}:</span>
-          <Input.TextArea
-            placeholder={t("blacklist_placeholder")}
-            autoSize={{
-              minRows: 4,
-              maxRows: 8,
-            }}
-            value={blacklist}
-            onChange={(v) => {
-              setBlacklist(v);
-            }}
-            onBlur={(v) => {
-              // 校验黑名单格式
-              const lines = v.target.value
-                .split("\n")
-                .map((line) => line.trim())
-                .filter((line) => line);
-              for (const line of lines) {
-                if (line && !parsePatternMatchesURL(line)) {
-                  Message.error(`${t("expression_format_error")}: ${line}`);
-                  return;
-                }
-              }
-              systemConfig.setBlacklist(v.target.value);
-            }}
-          />
-        </Space>
-      </Card>
       <Card title="ESLint" bordered={false}>
         <Space direction="vertical" className="w-full">
           <Checkbox
             onChange={(checked) => {
-              setEnableEslint(checked);
-              systemConfig.setEnableEslint(checked);
+              systemConfig.enableEslint = checked;
             }}
-            checked={enableEslint}
+            defaultChecked={systemConfig.enableEslint}
           >
             {t("enable_eslint")}
           </Checkbox>
@@ -322,22 +252,12 @@ function Setting() {
               minRows: 4,
               maxRows: 8,
             }}
-            value={eslintConfig}
-            onChange={(v) => {
-              setEslintConfig(v);
-            }}
+            defaultValue={format(systemConfig.eslintConfig, {
+              parser: "json",
+              plugins: [babel],
+            })}
             onBlur={(v) => {
-              prettier
-                .format(eslintConfig, {
-                  parser: "json",
-                  plugins: [prettierPluginEstree, babel],
-                })
-                .then((res) => {
-                  systemConfig.setEslintConfig(v.target.value);
-                })
-                .catch((e) => {
-                  Message.error(`${t("eslint_config_format_error")}: ${JSON.stringify(Logger.E(e))}`);
-                });
+              systemConfig.eslintConfig = v.target.value;
             }}
           />
         </Space>

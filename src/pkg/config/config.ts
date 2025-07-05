@@ -1,18 +1,19 @@
+import IoC from "@App/app/ioc";
+import MessageCenter from "@App/app/message/center";
+import MessageInternal from "@App/app/message/internal";
+import { MessageHander } from "@App/app/message/message";
 import { Message } from "@arco-design/web-react";
+import Hook from "@App/app/service/hook";
+import { FileSystemType } from "@Pkg/filesystem/factory";
 import ChromeStorage from "./chrome_storage";
-import { defaultConfig } from "../../../packages/eslint/linter-config";
-import { FileSystemType } from "@Packages/filesystem/factory";
-import { MessageQueue } from "@Packages/message/message_queue";
-import i18n, { matchLanguage } from "@App/locales/locales";
-import dayjs from "dayjs";
-import { ExtVersion } from "@App/app/const";
+// @ts-ignore
+import { defaultConfig } from "../../../eslint/linter-config";
 
 export const SystamConfigChange = "systemConfigChange";
 
 export type CloudSyncConfig = {
   enable: boolean;
   syncDelete: boolean;
-  syncStatus: boolean;
   filesystem: FileSystemType;
   params: { [key: string]: any };
 };
@@ -23,179 +24,221 @@ export type CATFileStorage = {
   status: "unset" | "success" | "error";
 };
 
+@IoC.Singleton(MessageHander)
 export class SystemConfig {
+  static hook = new Hook<"update">();
+
   public cache = new Map<string, any>();
 
   public storage = new ChromeStorage("system", true);
 
-  constructor(private mq: MessageQueue) {
-    this.mq.subscribe(SystamConfigChange, (msg) => {
-      const { key, value } = msg;
-      this.cache.set(key, value);
-    });
+  public message?: MessageCenter;
+
+  public internal?: MessageInternal;
+
+  private loadOk = false;
+
+  constructor(message: MessageHander) {
+    if (message instanceof MessageCenter) {
+      this.message = message;
+    }
+    if (message instanceof MessageInternal) {
+      this.internal = message;
+    }
+    this.syncConfig();
   }
 
-  addListener(key: string, callback: (value: any) => void) {
-    this.mq.subscribe(SystamConfigChange, (data: { key: string; value: string }) => {
-      if (data.key !== key) {
-        return;
-      }
-      const { value } = data;
-      callback(value);
-    });
-  }
-
-  async getAll(): Promise<{ [key: string]: any }> {
-    const ret: { [key: string]: any } = {};
+  public async syncConfig() {
     const list = await this.storage.keys();
     Object.keys(list).forEach((key) => {
-      this.cache.set(key, list[key]);
-      ret[key] = list[key];
+      if (!this.cache.has(key)) {
+        this.cache.set(key, list[key]);
+      }
+    });
+    this.loadOk = true;
+  }
+
+  // 由于加载数据是异步,需要等待数据加载完成
+  public awaitLoad(): Promise<SystemConfig> {
+    return new Promise((resolve) => {
+      if (this.loadOk) {
+        resolve(this);
+        return;
+      }
+      const timer = setInterval(() => {
+        if (this.loadOk) {
+          clearInterval(timer);
+          resolve(this);
+        }
+      }, 100);
+    });
+  }
+
+  public async init() {
+    // 监听消息设置变化
+    this.message?.setHandler(
+      SystamConfigChange,
+      (action: string, data: any) => {
+        this.storage.set(data.key, data.val);
+        this.cache.set(data.key, data.val);
+        SystemConfig.hook.trigger("update", data.key, data.val);
+      }
+    );
+  }
+
+  public set(key: string, val: any) {
+    this.cache.set(key, val);
+    if (this.internal) {
+      this.internal.send(SystamConfigChange, { key, val });
+    } else {
+      this.storage.set(key, val);
+    }
+  }
+
+  public list() {
+    const ret: { [key: string]: any } = {};
+    this.cache.forEach((val, key) => {
+      ret[key] = val;
     });
     return ret;
   }
 
-  get<T>(key: string, defaultValue: T): Promise<T> {
-    if (this.cache.has(key)) {
-      return Promise.resolve(this.cache.get(key));
-    }
-    return this.storage.get(key).then((val) => {
-      if (val === undefined) {
-        return defaultValue;
-      }
-      this.cache.set(key, val);
-      return val;
-    });
+  public get changetime() {
+    return <number>this.cache.get("changetime") || 0;
   }
 
-  public set(key: string, val: any) {
-    if (val === undefined) {
-      this.cache.delete(key);
-      this.storage.remove(key);
-    } else {
-      this.cache.set(key, val);
-      this.storage.set(key, val);
-    }
-    // 发送消息通知更新
-    this.mq.publish(SystamConfigChange, {
-      key,
-      value: val,
-    });
-  }
-
-  public getChangetime() {
-    return this.get("changetime", 0);
-  }
-
-  public setChangetime(n: number) {
+  public set changetime(n: number) {
     this.set("changetime", 0);
   }
 
   // 检查更新周期,单位为秒
-  public getCheckScriptUpdateCycle() {
-    return this.get("check_script_update_cycle", 86400);
+  public get checkScriptUpdateCycle(): number {
+    if (this.cache.get("check_script_update_cycle") === undefined) {
+      return 86400;
+    }
+    return <number>this.cache.get("check_script_update_cycle");
   }
 
-  public setCheckScriptUpdateCycle(n: number) {
+  public set checkScriptUpdateCycle(n: number) {
     this.set("check_script_update_cycle", n);
   }
 
-  public getSilenceUpdateScript() {
-    return this.get("silence_update_script", false);
+  public get silenceUpdateScript(): boolean {
+    return <boolean>this.cache.get("silence_update_script") || false;
   }
 
-  public setSilenceUpdateScript(val: boolean) {
+  public set silenceUpdateScript(val: boolean) {
     this.set("silence_update_script", val);
   }
 
-  public getEnableAutoSync() {
-    return this.get("enable_auto_sync", true);
+  public get enableAutoSync(): boolean {
+    if (!this.cache.has("enable_auto_sync")) {
+      return true;
+    }
+    return <boolean>this.cache.get("enable_auto_sync");
   }
 
-  public setEnableAutoSync(enable: boolean) {
+  public set enableAutoSync(enable: boolean) {
     this.set("enable_auto_sync", enable);
   }
 
   // 更新已经禁用的脚本
-  public getUpdateDisableScript() {
-    return this.get("update_disable_script", true);
+  public get updateDisableScript(): boolean {
+    const value = <boolean>this.cache.get("update_disable_script");
+    return value === undefined ? true : value;
   }
 
-  public setUpdateDisableScript(enable: boolean) {
+  public set updateDisableScript(enable: boolean) {
     this.set("update_disable_script", enable);
   }
 
-  public getVscodeUrl() {
-    return this.get("vscode_url", "ws://localhost:8642");
+  public get vscodeUrl(): string {
+    return <string>this.cache.get("vscode_url") || "ws://localhost:8642";
   }
 
-  public setVscodeUrl(val: string) {
+  public set vscodeUrl(val: string) {
     this.set("vscode_url", val);
   }
 
-  public getVscodeReconnect() {
-    return this.get("vscode_reconnect", false);
+  public get vscodeReconnect(): boolean {
+    return <boolean>this.cache.get("vscode_reconnect") || false;
   }
 
-  public setVscodeReconnect(val: boolean) {
+  public set vscodeReconnect(val: boolean) {
     this.set("vscode_reconnect", val);
   }
 
-  public getBackup(): Promise<{
+  public get backup(): {
     filesystem: FileSystemType;
     params: { [key: string]: any };
-  }> {
-    return this.get("backup", {
-      filesystem: "webdav",
-      params: {},
-    });
+  } {
+    return (
+      this.cache.get("backup") || {
+        filesystem: "webdav",
+        params: {},
+      }
+    );
   }
 
-  public setBackup(data: { filesystem: FileSystemType; params: { [key: string]: any } }) {
+  public set backup(data: {
+    filesystem: FileSystemType;
+    params: { [key: string]: any };
+  }) {
     this.set("backup", data);
   }
 
-  getCloudSync(): Promise<CloudSyncConfig> {
-    return this.get("cloud_sync", {
-      enable: false,
-      syncDelete: true,
-      syncStatus: true,
-      filesystem: "webdav",
-      params: {},
-    });
+  get cloudSync(): CloudSyncConfig {
+    return (
+      this.cache.get("cloud_sync") || {
+        enable: false,
+        syncDelete: true,
+        filesystem: "webdav",
+        params: {},
+      }
+    );
   }
 
-  setCloudSync(data: CloudSyncConfig) {
+  set cloudSync(data: CloudSyncConfig) {
     this.set("cloud_sync", data);
   }
 
-  getCatFileStorage(): Promise<CATFileStorage> {
-    return this.get("cat_file_storage", {
-      status: "unset",
-      filesystem: "webdav",
-      params: {},
-    });
+  get catFileStorage(): CATFileStorage {
+    return (
+      this.cache.get("cat_file_storage") || {
+        status: "unset",
+        filesystem: "webdav",
+        params: {},
+      }
+    );
   }
 
-  setCatFileStorage(data: CATFileStorage | undefined) {
+  set catFileStorage(data: CATFileStorage | undefined) {
     this.set("cat_file_storage", data);
   }
 
-  getEnableEslint() {
-    return this.get("enable_eslint", true);
+  get scriptCatFlag() {
+    return <string>this.cache.get("script_cat_flag");
   }
 
-  setEnableEslint(val: boolean) {
+  set scriptCatFlag(val: string) {
+    this.set("script_cat_flag", val);
+  }
+
+  get enableEslint() {
+    return <boolean>this.cache.get("enable_eslint");
+  }
+
+  set enableEslint(val: boolean) {
     this.set("enable_eslint", val);
   }
 
-  getEslintConfig() {
-    return this.get("eslint_config", defaultConfig);
+  get eslintConfig() {
+    return <string>this.cache.get("eslint_config") || defaultConfig;
   }
 
-  setEslintConfig(v: string) {
+  set eslintConfig(v: string) {
     if (v === "") {
-      this.set("eslint_config", undefined);
+      this.set("eslint_config", v);
       Message.success("ESLint规则已重置");
       return;
     }
@@ -209,85 +252,32 @@ export class SystemConfig {
   }
 
   // 日志清理周期
-  getLogCleanCycle() {
-    return this.get("log_clean_cycle", 7);
+  get logCleanCycle() {
+    return <number>this.cache.get("log_clean_cycle") || 7;
   }
 
-  setLogCleanCycle(val: number) {
+  set logCleanCycle(val: number) {
     this.set("log_clean_cycle", val);
   }
 
   // 设置脚本列表列宽度
-  getScriptListColumnWidth() {
-    return this.get<{ [key: string]: number }>("script_list_column_width", {});
+  get scriptListColumnWidth() {
+    return (
+      <{ [key: string]: number }>this.cache.get("script_list_column_width") ||
+      {}
+    );
   }
 
-  setScriptListColumnWidth(val: { [key: string]: number }) {
+  set scriptListColumnWidth(val: { [key: string]: number }) {
     this.set("script_list_column_width", val);
   }
 
   // 展开菜单数
-  getMenuExpandNum() {
-    return this.get("menu_expand_num", 5);
+  get menuExpandNum() {
+    return <number>this.cache.get("menu_expand_num") || 5;
   }
 
-  setMenuExpandNum(val: number) {
+  set menuExpandNum(val: number) {
     this.set("menu_expand_num", val);
-  }
-
-  async getLanguage() {
-    if (globalThis.localStorage) {
-      const cachedLanguage = localStorage.getItem("language");
-      if (cachedLanguage) {
-        return cachedLanguage;
-      }
-    }
-    let lng = await this.get("language", (await matchLanguage()) || chrome.i18n.getUILanguage());
-    // 设置进入缓存
-    if (globalThis.localStorage) {
-      localStorage.setItem("language", lng);
-    }
-    return lng;
-  }
-
-  setLanguage(value: any) {
-    this.set("language", value);
-    i18n.changeLanguage(value);
-    dayjs.locale(value.toLocaleLowerCase());
-    if (globalThis.localStorage) {
-      localStorage.setItem("language", value);
-    }
-  }
-
-  setCheckUpdate(data: { notice: string; version: string; isRead: boolean }) {
-    this.set("check_update", {
-      notice: data.notice,
-      version: data.version,
-      isRead: data.isRead,
-    });
-  }
-
-  getCheckUpdate(): Promise<Parameters<typeof this.setCheckUpdate>[0]> {
-    return this.get("check_update", {
-      notice: "",
-      isRead: false,
-      version: ExtVersion,
-    });
-  }
-
-  setEnableScript(enable: boolean) {
-    this.set("enable_script", enable);
-  }
-
-  getEnableScript(): Promise<boolean> {
-    return this.get("enable_script", true);
-  }
-
-  setBlacklist(blacklist: string) {
-    this.set("blacklist", blacklist);
-  }
-
-  getBlacklist(): Promise<string> {
-    return this.get("blacklist", "");
   }
 }

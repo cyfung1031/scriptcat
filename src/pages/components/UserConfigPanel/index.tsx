@@ -9,15 +9,12 @@ import {
   InputNumber,
   Message,
   Modal,
-  Popover,
   Select,
-  Space,
-  Switch,
   Tabs,
 } from "@arco-design/web-react";
 import TabPane from "@arco-design/web-react/es/Tabs/tab-pane";
-import { ValueClient } from "@App/app/service/service_worker/client";
-import { message } from "@App/pages/store/global";
+import IoC from "@App/app/ioc";
+import ValueController from "@App/app/service/value/controller";
 
 const FormItem = Form.Item;
 
@@ -40,20 +37,23 @@ const UserConfigPanel: React.FC<{
     <Modal
       visible={visible}
       title={`${script.name} ${t("config")}`} // 替换为键值对应的英文文本
-      okText={<Popover content={t("save_only_current_group")}>{t("save")}</Popover>}
+      okText={t("save")} // 替换为键值对应的英文文本
       cancelText={t("close")} // 替换为键值对应的英文文本
       onOk={() => {
         if (formRefs.current[tab]) {
           const saveValues = formRefs.current[tab].getFieldsValue();
-          console.log("saveValues", saveValues);
           // 更新value
-          const valueClient = new ValueClient(message);
+          const valueCtrl = IoC.instance(ValueController) as ValueController;
           Object.keys(saveValues).forEach((key) => {
             Object.keys(saveValues[key]).forEach((valueKey) => {
               if (saveValues[key][valueKey] === undefined) {
                 return;
               }
-              valueClient.setScriptValue(script.uuid, `${key}.${valueKey}`, saveValues[key][valueKey]);
+              valueCtrl.setValue(
+                script.id,
+                `${key}.${valueKey}`,
+                saveValues[key][valueKey]
+              );
             });
           });
           Message.success(t("save_success")!); // 替换为键值对应的英文文本
@@ -75,7 +75,7 @@ const UserConfigPanel: React.FC<{
           return (
             <TabPane key={itemKey} title={itemKey}>
               <Form
-                key={script.uuid}
+                key={script.id}
                 style={{
                   width: "100%",
                 }}
@@ -87,7 +87,11 @@ const UserConfigPanel: React.FC<{
                 }}
               >
                 {Object.keys(value).map((key) => (
-                  <FormItem key={key} label={value[key].title} field={`${itemKey}.${key}`}>
+                  <FormItem
+                    key={key}
+                    label={value[key].title}
+                    field={`${itemKey}.${key}`}
+                  >
                     {() => {
                       const item = value[key];
                       let { type } = item;
@@ -110,9 +114,20 @@ const UserConfigPanel: React.FC<{
                       switch (type) {
                         case "text":
                           if (item.password) {
-                            return <Input.Password placeholder={item.description} maxLength={item.max} />;
+                            return (
+                              <Input.Password
+                                placeholder={item.description}
+                                maxLength={item.max}
+                              />
+                            );
                           }
-                          return <Input placeholder={item.description} maxLength={item.max} showWordLimit />;
+                          return (
+                            <Input
+                              placeholder={item.description}
+                              maxLength={item.max}
+                              showWordLimit
+                            />
+                          );
                         case "number":
                           return (
                             <InputNumber
@@ -123,7 +138,13 @@ const UserConfigPanel: React.FC<{
                             />
                           );
                         case "checkbox":
-                          return <Checkbox defaultChecked={values[`${itemKey}.${key}`]}>{item.description}</Checkbox>;
+                          return (
+                            <Checkbox
+                              defaultChecked={values[`${itemKey}.${key}`]}
+                            >
+                              {item.description}
+                            </Checkbox>
+                          );
                         case "select":
                         case "mult-select":
                           // eslint-disable-next-line no-case-declarations
@@ -140,7 +161,11 @@ const UserConfigPanel: React.FC<{
                           }
                           return (
                             <Select
-                              mode={item.type === "mult-select" ? "multiple" : undefined}
+                              mode={
+                                item.type === "mult-select"
+                                  ? "multiple"
+                                  : undefined
+                              }
                               placeholder={item.description}
                             >
                               {options!.map((option) => (
@@ -158,18 +183,6 @@ const UserConfigPanel: React.FC<{
                               rows={item.rows}
                               showWordLimit
                             />
-                          );
-                        case "switch":
-                          return (
-                            <Space>
-                              <Switch
-                                defaultChecked={values[`${itemKey}.${key}`]}
-                                onChange={(val) => {
-                                  formRefs.current[itemKey].setFieldValue(`${itemKey}.${key}`, val);
-                                }}
-                              />
-                              <span>{item.description}</span>
-                            </Space>
                           );
                         default:
                           return null;

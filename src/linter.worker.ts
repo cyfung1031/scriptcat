@@ -1,23 +1,34 @@
-import { Linter } from "eslint-linter-browserify";
-const { rules } = require("eslint-plugin-userscripts");
+/* eslint-disable no-restricted-globals */
+// @ts-ignore
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { Linter } from "eslint/lib/linter/linter.js";
+// @ts-ignore
+import { userscriptsRules } from "../eslint/linter-config";
 
 // eslint语法检查,使用webworker
 
-const linter = new Linter({ configType: "eslintrc" });
+const linter = new Linter();
 
 // 额外定义 userscripts 规则
-const formatRules = Object.fromEntries(Object.entries(rules).map(([key, metas]) => ["userscripts/" + key, metas]));
-linter.defineRules(formatRules as any);
+linter.defineRules(userscriptsRules);
 
-const getRules = linter.getRules();
+const rules = linter.getRules();
 
 const severityMap = {
   2: 8, // 2 for ESLint is error
   1: 4, // 1 for ESLint is warning
 };
 
-function getTextBlock(text: string, startPosition: number, endPosition: number) {
-  if (startPosition > endPosition || startPosition < 0 || endPosition > text.length) {
+function getTextBlock(
+  text: string,
+  startPosition: number,
+  endPosition: number
+) {
+  if (
+    startPosition > endPosition ||
+    startPosition < 0 ||
+    endPosition > text.length
+  ) {
     throw new Error("Invalid positions provided");
   }
 
@@ -58,9 +69,11 @@ self.addEventListener("message", (event) => {
   const { code, id, config } = event.data;
   const errs = linter.verify(code, config);
   const markers = errs.map((err: any) => {
-    const rule = getRules.get(err.ruleId);
-    const target = rule?.meta?.docs?.url ?? "";
-
+    const rule = rules.get(err.ruleId);
+    let target = "";
+    if (rule) {
+      target = rule.meta.docs.url;
+    }
     let fix: any;
     if (err.fix) {
       fix = {

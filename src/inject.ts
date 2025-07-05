@@ -1,23 +1,23 @@
 import LoggerCore from "./app/logger/core";
 import MessageWriter from "./app/logger/message_writer";
-import { CustomEventMessage } from "@Packages/message/custom_event_message";
-import { Server } from "@Packages/message/server";
-import { InjectRuntime } from "./app/service/content/inject";
-import { ScriptLoadInfo } from "./app/service/service_worker/runtime";
+import MessageContent from "./app/message/content";
+import InjectRuntime from "./runtime/content/inject";
 
-const msg = new CustomEventMessage(MessageFlag, false);
+// 通过flag与content建立通讯,这个ScriptFlag是后端注入时候生成的
+// eslint-disable-next-line no-undef
+const flag = ScriptFlag;
+
+const message = new MessageContent(flag, false);
 
 // 加载logger组件
 const logger = new LoggerCore({
-  writer: new MessageWriter(msg),
+  debug: process.env.NODE_ENV === "development",
+  writer: new MessageWriter(message),
   labels: { env: "inject", href: window.location.href },
 });
 
-const server = new Server("inject", msg);
-
-server.on("pageLoad", (data: { scripts: ScriptLoadInfo[] }) => {
+message.setHandler("pageLoad", (_action, data) => {
   logger.logger().debug("inject start");
-  // 监听事件
-  const runtime = new InjectRuntime(server, msg, data.scripts);
+  const runtime = new InjectRuntime(message, data.scripts, flag);
   runtime.start();
 });

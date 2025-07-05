@@ -1,5 +1,14 @@
 import React, { useEffect } from "react";
-import { BackTop, Button, Card, DatePicker, Input, List, Message, Space } from "@arco-design/web-react";
+import {
+  BackTop,
+  Button,
+  Card,
+  DatePicker,
+  Input,
+  List,
+  Message,
+  Space,
+} from "@arco-design/web-react";
 import dayjs from "dayjs";
 import Text from "@arco-design/web-react/es/Typography/text";
 import { Logger, LoggerDAO } from "@App/app/repo/logger";
@@ -7,6 +16,8 @@ import LogLabel, { Labels, Query } from "@App/pages/components/LogLabel";
 import { IconPlus } from "@arco-design/web-react/icon";
 import { useSearchParams } from "react-router-dom";
 import { formatUnixTime } from "@App/pkg/utils/utils";
+import { SystemConfig } from "@App/pkg/config/config";
+import IoC from "@App/app/ioc";
 import { useTranslation } from "react-i18next";
 
 function LoggerPage() {
@@ -17,10 +28,12 @@ function LoggerPage() {
   const [logs, setLogs] = React.useState<Logger[]>([]);
   const [queryLogs, setQueryLogs] = React.useState<Logger[]>([]);
   const [search, setSearch] = React.useState<string>("");
-  const [startTime, setStartTime] = React.useState(dayjs().subtract(24, "hour").unix());
+  const [startTime, setStartTime] = React.useState(
+    dayjs().subtract(24, "hour").unix()
+  );
   const [endTime, setEndTime] = React.useState(dayjs().unix());
   const loggerDAO = new LoggerDAO();
-  const systemConfig = { logCleanCycle: 1 };
+  const systemConfig = IoC.instance(SystemConfig) as SystemConfig;
   const { t } = useTranslation();
 
   const onQueryLog = () => {
@@ -33,27 +46,35 @@ function LoggerPage() {
           const value = log.label[query.key];
           switch (query.condition) {
             case "=":
+              // eslint-disable-next-line eqeqeq
               if (value != query.value) {
                 return;
               }
               break;
             case "=~":
-              if (typeof value === "string" && value.indexOf(query.value) === -1) {
+              if (
+                typeof value === "string" &&
+                value.indexOf(query.value) === -1
+              ) {
                 return;
               }
               break;
             case "!=":
+              // eslint-disable-next-line eqeqeq
               if (value == query.value) {
                 return;
               }
               break;
             case "!~":
-              if (typeof value === "string" && value.indexOf(query.value) === -1) {
+              if (
+                typeof value === "string" &&
+                value.indexOf(query.value) === -1
+              ) {
                 return;
               }
               break;
             default:
-               
+              // eslint-disable-next-line eqeqeq
               if (value != query.value) {
                 return;
               }
@@ -108,7 +129,11 @@ function LoggerPage() {
 
   return (
     <>
-      <BackTop visibleHeight={30} style={{ position: "absolute" }} target={() => document.getElementById("backtop")!} />
+      <BackTop
+        visibleHeight={30}
+        style={{ position: "absolute" }}
+        target={() => document.getElementById("backtop")!}
+      />
       <div
         id="backtop"
         style={{
@@ -291,7 +316,8 @@ function LoggerPage() {
             }}
           >
             <Text>
-              {formatUnixTime(startTime)} {t("to")} {formatUnixTime(endTime)} {t("total_logs", { length: logs.length })}
+              {formatUnixTime(startTime)} {t("to")} {formatUnixTime(endTime)}{" "}
+              {t("total_logs", { length: logs.length })}
               {init === 4
                 ? `, ${t("filtered_logs", { length: queryLogs.length })}`
                 : `, ${t("enter_filter_conditions")}`}
@@ -308,18 +334,20 @@ function LoggerPage() {
                   key={index}
                   style={{
                     background:
-                       
+                      // eslint-disable-next-line no-nested-ternary
                       item.level === "error"
-                        ? "var(--color-danger-light-2)"  
+                        ? "var(--color-danger-light-2)" // eslint-disable-next-line no-nested-ternary
                         : item.level === "warn"
-                          ? "var(--color-warning-light-2)"
-                          : item.level === "info"
-                            ? "var(--color-success-light-2)"
-                            : "var(--color-primary-light-1)",
+                        ? "var(--color-warning-light-2)"
+                        : item.level === "info"
+                        ? "var(--color-success-light-2)"
+                        : "var(--color-primary-light-1)",
                   }}
                 >
                   {formatUnixTime(item.createtime / 1000)}{" "}
-                  {typeof item.message === "object" ? JSON.stringify(item.message) : item.message}{" "}
+                  {typeof item.message === "object"
+                    ? JSON.stringify(item.message)
+                    : item.message}{" "}
                   {JSON.stringify(item.label)}
                 </List.Item>
               )}
