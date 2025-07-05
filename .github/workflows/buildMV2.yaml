@@ -3,9 +3,14 @@ name: build
 on:
   push:
     branches:
-      - main
       - release/*
       - dev
+    paths-ignore:
+      - ".github/**"
+      - ".gitignore"
+      - "**.md"
+      - "LICENSE"
+  workflow_dispatch:
 
 jobs:
   build-deploy:
