@@ -2,6 +2,7 @@
 import merge from "webpack-merge";
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import CopyPlugin from "copy-webpack-plugin";
+import CompressionPlugin from "compression-webpack-plugin";
 import { CleanWebpackPlugin } from "clean-webpack-plugin";
 import common from "../webpack.config";
 
@@ -35,7 +36,14 @@ common.plugins = common.plugins!.filter(
 );
 
 export default merge(common, {
-  plugins: [],
+  plugins: [
+    // firefox商店文件不能大于4M, 所以需要压缩
+    new CompressionPlugin({
+      test: /ts.worker.js$/,
+      filename: () => "ts.worker.js",
+      deleteOriginalAssets: true,
+    }),
+  ],
   optimization: {
     minimize: false,
   },
