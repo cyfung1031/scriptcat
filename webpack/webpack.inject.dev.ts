@@ -20,7 +20,7 @@ common.output = {
 };
 
 // 取消splitChunks
-common.optimization = {};
+common.optimization = {minimize: false};
 
 // 移除插件
 common.plugins = common.plugins!.filter(
@@ -37,5 +37,5 @@ export default merge(common, {
   devtool: "inline-source-map",
   optimization: {
     minimize: false,
-  },
+  }
 });

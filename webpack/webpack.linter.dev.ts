@@ -19,7 +19,7 @@ common.output = {
 };
 
 // 取消splitChunks
-common.optimization = {};
+common.optimization = {minimize: false};
 
 // 移除插件
 common.plugins = [];

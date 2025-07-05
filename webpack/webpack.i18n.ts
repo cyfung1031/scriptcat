@@ -28,7 +28,7 @@ common.output = {
 };
 
 // 取消splitChunks
-common.optimization = {};
+common.optimization = {minimize: false};
 
 common.plugins = common.plugins!.filter((plugin) => {
   if (plugin instanceof HtmlWebpackPlugin && plugin.userOptions) {

@@ -27,7 +27,7 @@ common.output = {
 };
 
 // 取消splitChunks
-common.optimization = {};
+common.optimization = {minimize: false};
 
 export default merge(common, {
   watch: true,
