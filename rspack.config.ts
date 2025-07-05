@@ -30,7 +30,6 @@ export default defineConfig({
       }),
   context: dirname,
   entry: {
-    service_worker: `${src}/service_worker.ts`,
     offscreen: `${src}/offscreen.ts`,
     sandbox: `${src}/sandbox.ts`,
     content: `${src}/content.ts`,
@@ -213,7 +212,7 @@ export default defineConfig({
     splitChunks: {
       chunks: (chunk) => {
         // 排除这些文件，不进行分离
-        return !["editor.worker", "ts.worker", "linter.worker", "service_worker", "content", "inject"].includes(
+        return !["editor.worker", "ts.worker", "linter.worker", "content", "inject"].includes(
           chunk.name || ""
         );
       },

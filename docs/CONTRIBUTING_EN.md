@@ -106,4 +106,4 @@ Before packaging, please ensure that the `scriptcat.pem` file is generated in th
 
 ## Important Notes
 
-- After running `pnpm run dev`, you need to import and load the contents of the `dist/ext` directory into the browser extension, then start editing code and save. The browser updates in real-time, but changes involving `manifest.json`, `service_worker`, `offscreen`, and `sandbox` require reloading.
+- After running `pnpm run dev`, you need to import and load the contents of the `dist/ext` directory into the browser extension, then start editing code and save. The browser updates in real-time, but changes involving `manifest.json`, `offscreen`, and `sandbox` require reloading.
