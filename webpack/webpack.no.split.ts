@@ -44,4 +44,7 @@ export default merge(common, {
       deleteOriginalAssets: true,
     }),
   ],
+  optimization: {
+    minimize: false,
+  },
 });

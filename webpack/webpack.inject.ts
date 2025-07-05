@@ -32,4 +32,8 @@ common.plugins = common.plugins!.filter(
     )
 );
 
-export default merge(common, {});
+export default merge(common, {
+  optimization: {
+    minimize: false,
+  },
+});
