@@ -6,11 +6,12 @@ import HtmlWebpackPlugin from "html-webpack-plugin";
 import ESLintPlugin from "eslint-webpack-plugin";
 import CopyPlugin from "copy-webpack-plugin";
 import { CleanWebpackPlugin } from "clean-webpack-plugin";
+import UnoCSS from 'unocss/webpack';
 import { presetAttributify, presetUno } from "unocss";
 
-const UnoCSS = require("@unocss/webpack").default;
 const ProgressBarPlugin = require("progress-bar-webpack-plugin");
 const MonacoLocalesPlugin = require("monaco-editor-locales-plugin");
+
 
 const src = `${__dirname}/src`;
 const dist = `${__dirname}/dist`;
