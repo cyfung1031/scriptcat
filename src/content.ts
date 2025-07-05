@@ -19,7 +19,10 @@ const D392EC6BF3123287 = () => {
   const scriptFlag = randomString(8);
 
   // 注入运行框架
-  const temp = document.createElementNS("http://www.w3.org/1999/xhtml", "script");
+  const temp = document.createElementNS(
+    "http://www.w3.org/1999/xhtml",
+    "script"
+  );
   temp.setAttribute("type", "text/javascript");
   temp.textContent = `(function (ScriptFlag) {\n${injectJs}\n})('${scriptFlag}')`;
   temp.className = "injected-js";
