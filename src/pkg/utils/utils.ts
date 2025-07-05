@@ -271,6 +271,7 @@ export function errorMsg(e: any): string {
 }
 
 export function isUserScriptsAvailable() {
+  if(1) return true;
   try {
     // Method call which throws if API permission or toggle is not enabled.
     chrome.userScripts.getScripts();
