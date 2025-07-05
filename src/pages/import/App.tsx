@@ -110,25 +110,34 @@ function App() {
                   return [0, prev[1]];
                 });
                 setLoading(true);
-                const result = scripts.map(async (item) => {
-                  if (item.install && !item.error) {
-                    // 导入资源
-                    await synchronizeClient.importResources(
-                      item.script?.script.uuid,
-                      item.requires,
-                      item.resources,
-                      item.requiresCss
-                    );
-                    await scriptClient.install(item.script?.script!, item.code);
-                    // 导入数据
-                    const { data } = item.storage;
-                    Object.keys(data).forEach((key) => {
-                      valueClient.setScriptValue(item.script?.script.uuid!, key, data[key]);
-                    });
-                  }
+                const plusOne = () => {
                   setInstallNum((prev) => {
                     return [prev[0] + 1, prev[1]];
                   });
+                };
+                const result = scripts.map(async (item) => {
+                  if (item.install && !item.error) {
+                    try {
+                      const results = [];
+                      // 导入资源
+                      results.push(synchronizeClient.importResources(
+                        item.script?.script.uuid,
+                        item.requires,
+                        item.resources,
+                        item.requiresCss
+                      ));
+                      results.push(scriptClient.install(item.script?.script!, item.code));
+                      // 导入数据
+                      const { data } = item.storage;
+                      for (const [key, value] of Object.entries(data)) {
+                        results.push(valueClient.setScriptValue(item.script?.script.uuid!, key, value));
+                      }
+                      await Promise.all(results);
+                    } catch (e) {
+                      // 跳過失敗
+                    }
+                  }
+                  setTimeout(plusOne, 0);
                 });
                 await Promise.all(result);
                 setLoading(false);
