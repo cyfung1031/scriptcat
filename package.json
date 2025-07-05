@@ -96,7 +96,7 @@
     "progress-bar-webpack-plugin": "^2.1.0",
     "raw-loader": "^4.0.2",
     "style-loader": "^3.3.1",
-    "terser-webpack-plugin": "^5.3.9",
+    "terser-webpack-plugin": "^5.3.14",
     "ts-jest": "^29.0.3",
     "ts-node": "^10.9.1",
     "typescript": "^4.7.4",
