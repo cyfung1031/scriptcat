@@ -70,15 +70,14 @@ export function semTime(time: Date) {
   return dayjs().to(dayjs(time));
 }
 
-export function randomString(e: number) {
-  e = e || 32;
-  const t = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz";
-  const a = t.length;
-  let n = "";
-  for (let i = 0; i < e; i += 1) {
-    n += t.charAt(Math.floor(Math.random() * a));
-  }
-  return n;
+export function randomString(len: number) {
+  len = len || 32;
+  const chars = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz";
+  const charsLen = chars.length;
+  return Array.from(
+    { length: len },
+    () => chars[(Math.random() * charsLen) | 0]
+  ).join("");
 }
 
 export function dealSymbol(source: string): string {
@@ -92,10 +91,18 @@ export function dealScript(source: string): string {
 }
 
 export function isFirefox() {
-  if (navigator.userAgent.indexOf("Firefox") >= 0) {
-    return true;
+  return navigator.userAgent.includes("Firefox");
+}
+
+export function isOrion() {
+  try {
+    // @ts-ignore
+    return (navigator.userAgentData as any[]).brands.some((brand) => {
+      return brand.brand === "Orion" && brand.version;
+    });
+  } catch {
+    return false;
   }
-  return false;
 }
 
 export function InfoNotification(title: string, msg: string) {

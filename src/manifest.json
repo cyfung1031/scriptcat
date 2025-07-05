@@ -40,6 +40,8 @@
     "webRequestBlocking"
   ],
   "sandbox": {
-    "pages": ["src/sandbox.html"]
+    "pages": [
+      "src/sandbox.html"
+    ]
   }
 }
