@@ -32,4 +32,7 @@ export default merge(common, {
       reportFilename: "../../report/bundle-analyzer.html",
     }),
   ],
+  optimization: {
+    minimize: false,
+  },
 });
