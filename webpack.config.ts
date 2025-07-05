@@ -161,18 +161,7 @@ const config: Configuration = {
   },
   optimization: {
     minimize: false,
-    minimizer: [
-      new TerserPlugin({
-        terserOptions: {
-          compress: false,
-          mangle: false,
-          format: {
-            beautify: true,
-            comments: true,
-          },
-        },
-      }),
-    ],
+    minimizer: [],
     splitChunks: {
       chunks: "all",
       minSize: 307200,

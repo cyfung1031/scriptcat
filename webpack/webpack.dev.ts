@@ -1,6 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import merge from "webpack-merge";
-import CompressionPlugin from "compression-webpack-plugin";
 import CopyPlugin from "copy-webpack-plugin";
 import common from "../webpack.config";
 
@@ -50,12 +49,6 @@ export default merge(common, {
           to: `${dist}/ext/assets/logo.png`,
         },
       ],
-    }),
-    // firefox商店文件不能大于4M, 所以需要压缩
-    new CompressionPlugin({
-      test: /ts.worker.js$/,
-      filename: () => "ts.worker.js",
-      deleteOriginalAssets: true,
     }),
     new NodePolyfillPlugin(),
   ],
