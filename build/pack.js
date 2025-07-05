@@ -45,7 +45,7 @@ if (process.env.GITHUB_REF_TYPE === "branch") {
   fs.writeFileSync("./src/app/const.ts", configSystem);
 }
 
-execSync("npm run build", { stdio: "inherit" });
+execSync("npm run dev", { stdio: "inherit" });
 
 if (version.prerelease.length || process.env.GITHUB_REF_TYPE === "branch") {
   // beta时红猫logo
