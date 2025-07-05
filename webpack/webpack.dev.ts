@@ -70,4 +70,7 @@ export default merge(common, {
       ),
     },
   },
+  optimization: {
+    minimize: false,
+  },
 });

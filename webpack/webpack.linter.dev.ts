@@ -31,4 +31,7 @@ export default merge(common, {
   resolve: {
     mainFields: ["browser", "main", "module"],
   },
+  optimization: {
+    minimize: false,
+  },
 });
