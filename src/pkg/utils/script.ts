@@ -28,7 +28,7 @@ export function getMetadataStr(code: string): string | null {
   if (start === -1 || end === -1) {
     return null;
   }
-  return `// ${code.substring(start, end + 15)}`;
+  return ["// ", code.substring(start, end + 15)].join("");
 }
 
 export function getUserConfigStr(code: string): string | null {
@@ -37,7 +37,7 @@ export function getUserConfigStr(code: string): string | null {
   if (start === -1 || end === -1) {
     return null;
   }
-  return `/* ${code.substring(start, end + 15)} */`;
+  return ["/* ", code.substring(start, end + 15), " */"].join("");
 }
 
 export function parseMetadata(code: string): Metadata | null {
