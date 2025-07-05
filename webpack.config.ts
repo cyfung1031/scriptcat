@@ -6,9 +6,8 @@ import HtmlWebpackPlugin from "html-webpack-plugin";
 import ESLintPlugin from "eslint-webpack-plugin";
 import CopyPlugin from "copy-webpack-plugin";
 import { CleanWebpackPlugin } from "clean-webpack-plugin";
-import { presetAttributify, presetUno } from "unocss";
+import { UnocssWebpackPlugin } from "@unocss/webpack";
 
-const UnoCSS = require("@unocss/webpack").default;
 const ProgressBarPlugin = require("progress-bar-webpack-plugin");
 const MonacoLocalesPlugin = require("monaco-editor-locales-plugin");
 
@@ -120,7 +119,7 @@ const config: Configuration = {
       defaultLanguage: "zh-cn",
       logUnmatched: false,
     }),
-    UnoCSS({
+    new UnocssWebpackPlugin({
       presets: [presetUno(), presetAttributify()],
     }),
   ],
