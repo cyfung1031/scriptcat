@@ -2,7 +2,7 @@ import { type ScriptRunResource } from "@App/app/repo/scripts";
 import { v4 as uuidv4 } from "uuid";
 import type { Message } from "@Packages/message/types";
 import EventEmitter from "eventemitter3";
-import { GMContextApiGet, protect } from "./gm_context";
+import { GMContextApiGet } from "./gm_context";
 import { GM_Base } from "./gm_api";
 
 // 构建沙盒上下文
@@ -23,7 +23,6 @@ export function createContext(scriptRes: ScriptRunResource, GMInfo: any, envPref
     window: {
       onurlchange: null,
     },
-    protect,
     __methodInject__(grant: string): boolean {
       const grantSet = this.grantSet || (this.grantSet = new Set());
       const s = GMContextApiGet(grant);

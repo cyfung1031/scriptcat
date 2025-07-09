@@ -67,7 +67,7 @@ export default class ExecScript {
   exec() {
     this.logger.debug("script start");
     const context = this.proxyContent;
-    return this.scriptFunc.call(null, context, context.protect || {context: undefined, protect: undefined} );
+    return this.scriptFunc.call(null, context, this.scriptRes.name);
   }
 
   stop() {
