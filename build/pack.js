@@ -73,8 +73,8 @@ firefoxManifest.browser_specific_settings = {
         : "8e515334-52b5-4cc5-b4e8-675d50af677d"
     }}`,
     strict_min_version: "91.1.0",
+    update_url: `https://raw.githubusercontent.com/scriptscat/scriptcat/refs/heads/release/mv2/build/firefox-update.json`,
   },
-  update_url: `https://raw.githubusercontent.com/scriptscat/scriptcat/refs/heads/release/mv2/build/firefox-update.json`,
 };
 
 const chrome = new JSZip();
@@ -151,3 +151,26 @@ crx
     // eslint-disable-next-line no-console
     console.error(err);
   });
+
+const path = require("path");
+
+try {
+  // Build .xpi with web-ext
+  const xpiOutput = execSync(
+    `npx web-ext build --source-dir=./dist/ext --artifacts-dir=./dist`,
+    { stdio: "inherit" }
+  );
+
+  // Rename the generated .xpi to include version and name
+  const xpiName = `${package.name}-v${package.version}-firefox.xpi`;
+  const artifactDir = path.resolve(__dirname, "../dist");
+
+  const files = fs.readdirSync(artifactDir);
+  const builtXpi = files.find((f) => f.endsWith(".xpi"));
+
+  if (builtXpi) {
+    fs.renameSync(path.join(artifactDir, builtXpi), path.join(artifactDir, xpiName));
+  }
+} catch (e) {
+  console.error("Failed to build .xpi using web-ext:", e);
+}
