@@ -40,9 +40,12 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
 }`;
 }
 
+const param1 = "context";
+const param2 = "protect";
+
 // 通过脚本代码编译脚本函数
 export function compileScript(code: string): ScriptFunc {
-  return <ScriptFunc>new Function("GM", code);
+  return <ScriptFunc>new Function(param1, param2, code);
 }
 /**
  * 将脚本函数编译为注入脚本代码
@@ -56,7 +59,7 @@ export function compileInjectScript(
   autoDeleteMountFunction: boolean = false
 ): string {
   scriptCode = scriptCode ?? script.code;
-  return `window['${script.flag}'] = function(context){
+  return `window['${script.flag}'] = function(${param1}, ${param2}){
 ${autoDeleteMountFunction ? `  try{delete window['${script.flag}'];}catch(e){};` : ""}${scriptCode}}`;
 }
 
