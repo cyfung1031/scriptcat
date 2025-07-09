@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"; // Added useCallback
 import {
   Avatar,
   Button,
@@ -78,6 +78,10 @@ import { ValueClient } from "@App/app/service/service_worker/client";
 import { loadScriptFavicons } from "@App/pages/store/utils";
 import { store } from "@App/pages/store/store";
 
+// Memoize child components to prevent unnecessary re-renders
+const MemoizedUserConfigPanel = React.memo(UserConfigPanel);
+const MemoizedCloudScriptPlan = React.memo(CloudScriptPlan);
+
 type ListType = ScriptLoading;
 
 function ScriptList() {
@@ -91,259 +95,108 @@ function ScriptList() {
   const scriptList = useAppSelector(selectScripts);
   const inputRef = useRef<RefInputType>(null);
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const openUserConfig = useSearchParams()[0].get("userConfig") || "";
   const [showAction, setShowAction] = useState(false);
   const [action, setAction] = useState("");
   const [select, setSelect] = useState<Script[]>([]);
   const [selectColumn, setSelectColumn] = useState(0);
+  const { t } = useTranslation();
   const [components, setComponents] = useState<ComponentsProps | undefined>(undefined);
   const [dealColumns, setDealColumns] = useState<ColumnProps[]>([]);
-  const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
 
-  const sortableItems = useMemo(() => scriptList.map((s) => s.uuid), [scriptList]);
-
-  useEffect(() => {
-    dispatch(fetchScriptList()).then((action) => {
-      if (fetchScriptList.fulfilled.match(action)) {
-        // 在脚本列表加载完成后，加载favicon
-        // loadScriptFavicons(action.payload);
-      }
-    });
-  }, [dispatch]);
-
-  // 设置列和判断是否打开用户配置
-  useEffect(() => {
-    if (openUserConfig) {
-      const dao = new ScriptDAO();
-      dao.get(openUserConfig).then((script) => {
-        if (script && script.config) {
-          new ValueClient(message).getScriptValue(script).then((values) => {
-            setUserConfig({
-              script,
-              userConfig: script.config!,
-              values: values,
-            });
-          });
-        }
+  // Memoize navigation handler
+  const handleNavigateToLogger = useCallback(
+    (item: ListType) => {
+      navigate({
+        pathname: "logger",
+        search: `query=${encodeURIComponent(
+          JSON.stringify([
+            { key: "uuid", value: item.uuid },
+            { key: "component", value: "GM_log" },
+          ])
+        )}`,
       });
-    }
-    systemConfig.getScriptListColumnWidth().then((columnWidth) => {
-      setNewColumns(
-        columns.map((item) => ({
-          ...item,
-          width: Number.isNaN(columnWidth[item.key!]) ? item.width : columnWidth[item.key!],
-        }))
-      );
-    });
-  }, [openUserConfig]);
-
-  // 处理拖拽排序
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    },
+    [navigate]
   );
 
-  const handleEnableToggle = useCallback(
+  // Memoize enable handler
+  const handleEnableScript = useCallback(
     (uuid: string, enable: boolean) => {
       dispatch(requestEnableScript({ uuid, enable }));
     },
     [dispatch]
   );
 
-  const EnableSwitch = React.memo(
-    ({ item }: { item: ScriptLoading }) => (
-      <Switch
-        checked={item.status === SCRIPT_STATUS_ENABLE}
-        loading={item.enableLoading}
-        disabled={item.enableLoading}
-        onChange={(checked) => handleEnableToggle(item.uuid, checked)}
-      />
-    ),
-    (prev, next) => prev.item.status === next.item.status && prev.item.enableLoading === next.item.enableLoading && prev.item.uuid === next.item.uuid
+  // Memoize delete handler
+  const handleDeleteScript = useCallback(
+    (uuid: string) => {
+      dispatch(requestDeleteScript(uuid));
+    },
+    [dispatch]
   );
-  EnableSwitch.displayName = "EnableSwitch";
 
-  const ScriptName = React.memo(
-    ({ item }: { item: ScriptLoading }) => (
-      <Tooltip content={item.name} position="tl">
-        <Link to={`/script/editor/${item.uuid}`} style={{ textDecoration: "none" }}>
-          <Text
-            style={{
-              display: "block",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              lineHeight: "20px",
-            }}
-          >
-            <ScriptIcons script={item} size={20} />
-            {i18nName(item)}
-          </Text>
-        </Link>
-      </Tooltip>
-    ),
-    (prev, next) => prev.item.name === next.item.name && prev.item.uuid === next.item.uuid
-  );
-  ScriptName.displayName = "ScriptName";
-
-  const ApplyToRunStatus = React.memo(
-    ({ item, t, navigate }: { item: ScriptLoading; t: (key: string) => string; navigate: (options: any) => void }) => {
-      const toLogger = useCallback(() => {
-        navigate({
-          pathname: "logger",
-          search: `query=${encodeURIComponent(
-            JSON.stringify([
-              { key: "uuid", value: item.uuid },
-              { key: "component", value: "GM_log" },
-            ])
-          )}`,
-        });
-      }, [navigate, item.uuid]);
-
-      const favoriteAvatars = useMemo(() => {
-        if (!item.favorite) return null;
-        // 排序并且只显示前5个
-        // 排序将有icon的放在前面
-        const sorted = [...item.favorite].sort((a, b) => {
-          if (a.icon && !b.icon) return -1;
-          if (!a.icon && b.icon) return 1;
-          return a.match.localeCompare(b.match);
-        });
-        const sliced = sorted.slice(0, 4);
-        return sliced.map((fav) => (
-          <Avatar
-            key={fav.match}
-            shape="square"
-            style={{ backgroundColor: "unset", borderWidth: 1 }}
-            className={fav.website ? "cursor-pointer" : "cursor-default"}
-            onClick={() => {
-              if (fav.website) {
-                window.open(fav.website, "_blank");
-              }
-            }}
-          >
-            {fav.icon ? <img title={fav.match} src={fav.icon} /> : <TbWorldWww title={fav.match} color="#aaa" size={24} />}
-          </Avatar>
-        ));
-      }, [item.favorite]);
-
-      if (item.type === SCRIPT_TYPE_NORMAL) {
-        return (
-          <Avatar.Group size={20}>
-            {favoriteAvatars}
-            {item.favorite && item.favorite.length > 4 && "..."}
-          </Avatar.Group>
-        );
-      }
-
-      let tooltip = "";
-      if (item.type === SCRIPT_TYPE_BACKGROUND) {
-        tooltip = t("background_script_tooltip");
+  // Memoize run/stop script handler
+  const handleRunStopScript = useCallback(
+    async (item: ScriptLoading) => {
+      if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
+        Message.loading({ id: "script-stop", content: t("stopping_script") });
+        await dispatch(requestStopScript(item.uuid));
+        Message.success({ id: "script-stop", content: t("script_stopped"), duration: 3000 });
       } else {
-        tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
+        Message.loading({ id: "script-run", content: t("starting_script") });
+        await dispatch(requestRunScript(item.uuid));
+        Message.success({ id: "script-run", content: t("script_started"), duration: 3000 });
       }
-
-      return (
-        <Tooltip content={tooltip}>
-          <Tag
-            icon={<IconClockCircle />}
-            color="blue"
-            bordered
-            style={{ cursor: "pointer" }}
-            onClick={toLogger}
-          >
-            {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
-          </Tag>
-        </Tooltip>
-      );
     },
-    (prev, next) =>
-      prev.item.uuid === next.item.uuid &&
-      prev.item.type === next.item.type &&
-      prev.item.runStatus === next.item.runStatus &&
-      prev.item.favorite === next.item.favorite &&
-      prev.item.metadata === next.item.metadata &&
-      prev.t === next.t &&
-      prev.navigate === next.navigate
+    [dispatch, t]
   );
-  ApplyToRunStatus.displayName = "ApplyToRunStatus";
 
-  const ScriptActions = React.memo(
-    ({ item, t }: { item: ScriptLoading; t: (key: string) => string }) => {
-      const handleDelete = useCallback(() => {
-        dispatch(requestDeleteScript(item.uuid));
-      }, [item.uuid]);
-
-      const handleConfig = useCallback(() => {
-        new ValueClient(message).getScriptValue(item).then((newValues) => {
-          setUserConfig({
-            userConfig: { ...item.config! },
-            script: item,
-            values: newValues,
-          });
+  // Memoize check update handler
+  const handleCheckUpdate = useCallback(
+    (script: Script) => {
+      if (!script.checkUpdateUrl) {
+        Message.warning(t("update_not_supported")!);
+        return;
+      }
+      Message.info({ id: "checkupdate", content: t("checking_for_updates") });
+      scriptClient
+        .requestCheckUpdate(script.uuid)
+        .then((res) => {
+          if (res) {
+            Message.warning({ id: "checkupdate", content: t("new_version_available") });
+          } else {
+            Message.success({ id: "checkupdate", content: t("latest_version") });
+          }
+        })
+        .catch((e) => {
+          Message.error({ id: "checkupdate", content: `${t("update_check_failed")}: ${e.message}` });
         });
-      }, [item]);
-
-      const handleRunStop = useCallback(async () => {
-        if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
-          Message.loading({ id: "script-stop", content: t("stopping_script") });
-          await dispatch(requestStopScript(item.uuid));
-          Message.success({ id: "script-stop", content: t("script_stopped"), duration: 3000 });
-        } else {
-          Message.loading({ id: "script-run", content: t("starting_script") });
-          await dispatch(requestRunScript(item.uuid));
-          Message.success({ id: "script-run", content: t("script_started"), duration: 3000 });
-        }
-      }, [item.uuid, item.runStatus, t]);
-
-      const handleCloud = useCallback(() => {
-        setCloudScript(item);
-      }, [item]);
-
-      return (
-        <Button.Group>
-          <Link to={`/script/editor/${item.uuid}`}>
-            <Button type="text" icon={<RiPencilFill />} style={{ color: "var(--color-text-2)" }} />
-          </Link>
-          <Popconfirm title={t("confirm_delete_script")} icon={<RiDeleteBin5Fill />} onOk={handleDelete}>
-            <Button
-              type="text"
-              icon={<RiDeleteBin5Fill />}
-              loading={item.actionLoading}
-              style={{ color: "var(--color-text-2)" }}
-            />
-          </Popconfirm>
-          {item.config && (
-            <Button type="text" icon={<RiSettings3Fill />} onClick={handleConfig} style={{ color: "var(--color-text-2)" }} />
-          )}
-          {item.type !== SCRIPT_TYPE_NORMAL && (
-            <Button
-              type="text"
-              icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
-              loading={item.actionLoading}
-              onClick={handleRunStop}
-              style={{ color: "var(--color-text-2)" }}
-            />
-          )}
-          {item.metadata.cloudcat && (
-            <Button type="text" icon={<RiUploadCloudFill />} onClick={handleCloud} style={{ color: "var(--color-text-2)" }} />
-          )}
-        </Button.Group>
-      );
     },
-    (prev, next) =>
-      prev.item.uuid === next.item.uuid &&
-      prev.item.config === next.item.config &&
-      prev.item.type === next.item.type &&
-      prev.item.runStatus === next.item.runStatus &&
-      prev.item.actionLoading === next.item.actionLoading &&
-      prev.item.metadata === next.item.metadata &&
-      prev.t === next.t
+    [t]
   );
-  ScriptActions.displayName = "ScriptActions";
+
+  // Memoize user config handler
+  const handleOpenUserConfig = useCallback(
+    (item: ScriptLoading) => {
+      new ValueClient(message).getScriptValue(item).then((newValues) => {
+        setUserConfig({
+          userConfig: { ...item.config! },
+          script: item,
+          values: newValues,
+        });
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    dispatch(fetchScriptList()).then((action) => {
+      if (fetchScriptList.fulfilled.match(action)) {
+        loadScriptFavicons(action.payload);
+      }
+    });
+  }, [dispatch]);
 
   const columns: ColumnProps[] = useMemo(
     () => [
@@ -370,17 +223,20 @@ function ScriptList() {
           return a.status - b.status;
         },
         filters: [
-          {
-            text: t("enable"),
-            value: SCRIPT_STATUS_ENABLE,
-          },
-          {
-            text: t("disable"),
-            value: SCRIPT_STATUS_DISABLE,
-          },
+          { text: t("enable"), value: SCRIPT_STATUS_ENABLE },
+          { text: t("disable"), value: SCRIPT_STATUS_DISABLE },
         ],
         onFilter: (value, row) => row.status === value,
-        render: (col, item: ScriptLoading) => <EnableSwitch item={item} />,
+        render: (col, item: ScriptLoading) => {
+          return (
+            <Switch
+              checked={item.status === SCRIPT_STATUS_ENABLE}
+              loading={item.enableLoading}
+              disabled={item.enableLoading}
+              onChange={(checked) => handleEnableScript(item.uuid, checked)}
+            />
+          );
+        },
       },
       {
         key: "name",
@@ -413,7 +269,6 @@ function ScriptList() {
           value = value.toLocaleLowerCase();
           row.name = row.name.toLocaleLowerCase();
           const i18n = i18nName(row).toLocaleLowerCase();
-          // 空格分开关键字搜索
           const keys = value.split(" ");
           for (const key of keys) {
             if (row.name.includes(key) || i18n.includes(key)) {
@@ -428,7 +283,31 @@ function ScriptList() {
           }
         },
         className: "max-w-[240px]",
-        render: (col, item: ListType) => <ScriptName item={item} />,
+        render: (col, item: ListType) => {
+          return (
+            <Tooltip content={col} position="tl">
+              <Link
+                to={`/script/editor/${item.uuid}`}
+                style={{
+                  textDecoration: "none",
+                }}
+              >
+                <Text
+                  style={{
+                    display: "block",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    lineHeight: "20px",
+                  }}
+                >
+                  <ScriptIcons script={item} size={20} />
+                  {i18nName(item)}
+                </Text>
+              </Link>
+            </Tooltip>
+          );
+        },
       },
       {
         title: t("version"),
@@ -445,7 +324,64 @@ function ScriptList() {
         title: t("apply_to_run_status"),
         width: t("script_list_apply_to_run_status_width"),
         className: "apply_to_run_status",
-        render: (col, item: ListType) => <ApplyToRunStatus item={item} t={t} navigate={navigate} />,
+        render(col, item: ListType) {
+          if (item.type === SCRIPT_TYPE_NORMAL) {
+            return (
+              <Avatar.Group size={20}>
+                {item.favorite &&
+                  [...item.favorite]
+                    .sort((a, b) => {
+                      if (a.icon && !b.icon) return -1;
+                      if (!a.icon && b.icon) return 1;
+                      return a.match.localeCompare(b.match);
+                    })
+                    .slice(0, 4)
+                    .map((fav) => (
+                      <Avatar
+                        key={fav.match}
+                        shape="square"
+                        style={{
+                          backgroundColor: "unset",
+                          borderWidth: 1,
+                        }}
+                        className={fav.website ? "cursor-pointer" : "cursor-default"}
+                        onClick={() => {
+                          if (fav.website) {
+                            window.open(fav.website, "_blank");
+                          }
+                        }}
+                      >
+                        {fav.icon ? (
+                          <img title={fav.match} src={fav.icon} />
+                        ) : (
+                          <TbWorldWww title={fav.match} color="#aaa" size={24} />
+                        )}
+                      </Avatar>
+                    ))}
+                {item.favorite && item.favorite.length > 4 && "..."}
+              </Avatar.Group>
+            );
+          }
+          let tooltip = "";
+          if (item.type === SCRIPT_TYPE_BACKGROUND) {
+            tooltip = t("background_script_tooltip");
+          } else {
+            tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
+          }
+          return (
+            <Tooltip content={tooltip}>
+              <Tag
+                icon={<IconClockCircle />}
+                color="blue"
+                bordered
+                style={{ cursor: "pointer" }}
+                onClick={() => handleNavigateToLogger(item)}
+              >
+                {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
+              </Tag>
+            </Tooltip>
+          );
+        },
       },
       {
         title: t("source"),
@@ -534,29 +470,7 @@ function ScriptList() {
         sorter: (a, b) => a.updatetime - b.updatetime,
         render(col, script: Script) {
           return (
-            <span
-              style={{ cursor: "pointer" }}
-              onClick={() => {
-                if (!script.checkUpdateUrl) {
-                  Message.warning(t("update_not_supported")!);
-                  return;
-                }
-                Message.info({ id: "checkupdate", content: t("checking_for_updates") });
-                scriptClient
-                  .requestCheckUpdate(script.uuid)
-                  .then((res) => {
-                    console.log("res", res); // console 打印？
-                    if (res) {
-                      Message.warning({ id: "checkupdate", content: t("new_version_available") });
-                    } else {
-                      Message.success({ id: "checkupdate", content: t("latest_version") });
-                    }
-                  })
-                  .catch((e) => {
-                    Message.error({ id: "checkupdate", content: `${t("update_check_failed")}: ${e.message}` });
-                  });
-              }}
-            >
+            <span style={{ cursor: "pointer" }} onClick={() => handleCheckUpdate(script)}>
               {semTime(new Date(col))}
             </span>
           );
@@ -567,24 +481,132 @@ function ScriptList() {
         dataIndex: "action",
         key: "action",
         width: 160,
-        render: (col, item: ScriptLoading) => <ScriptActions item={item} t={t} />,
+        render(col, item: ScriptLoading) {
+          return (
+            <Button.Group>
+              <Link to={`/script/editor/${item.uuid}`}>
+                <Button type="text" icon={<RiPencilFill />} style={{ color: "var(--color-text-2)" }} />
+              </Link>
+              <Popconfirm
+                title={t("confirm_delete_script")}
+                icon={<RiDeleteBin5Fill />}
+                onOk={() => handleDeleteScript(item.uuid)}
+              >
+                <Button
+                  type="text"
+                  icon={<RiDeleteBin5Fill />}
+                  loading={item.actionLoading}
+                  style={{ color: "var(--color-text-2)" }}
+                />
+              </Popconfirm>
+              {item.config && (
+                <Button
+                  type="text"
+                  icon={<RiSettings3Fill />}
+                  onClick={() => handleOpenUserConfig(item)}
+                  style={{ color: "var(--color-text-2)" }}
+                />
+              )}
+              {item.type !== SCRIPT_TYPE_NORMAL && (
+                <Button
+                  type="text"
+                  icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
+                  loading={item.actionLoading}
+                  onClick={() => handleRunStopScript(item)}
+                  style={{ color: "var(--color-text-2)" }}
+                />
+              )}
+              {item.metadata.cloudcat && (
+                <Button
+                  type="text"
+                  icon={<RiUploadCloudFill />}
+                  onClick={() => setCloudScript(item)}
+                  style={{ color: "var(--color-text-2)" }}
+                />
+              )}
+            </Button.Group>
+          );
+        },
       },
     ],
-    [t, navigate, handleEnableToggle]
+    [t, handleEnableScript, handleDeleteScript, handleRunStopScript, handleCheckUpdate, handleNavigateToLogger]
+  );
+
+  const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
+
+  // Handle drag end
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) {
+        return;
+      }
+      dispatch(sortScript({ active: active.id as string, over: over.id as string }));
+    },
+    [dispatch]
+  );
+
+  // Initialize columns and user config
+  useEffect(() => {
+    if (openUserConfig) {
+      const dao = new ScriptDAO();
+      dao.get(openUserConfig).then((script) => {
+        if (script && script.config) {
+          new ValueClient(message).getScriptValue(script).then((values) => {
+            setUserConfig({ script, userConfig: script.config!, values });
+          });
+        }
+      });
+    }
+    systemConfig.getScriptListColumnWidth().then((columnWidth) => {
+      setNewColumns(
+        columns.map((item) => ({
+          ...item,
+          width: columnWidth[item.key!] ?? item.width,
+        }))
+      );
+    });
+  }, [openUserConfig, columns]);
+
+  // Setup drag-and-drop components
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
   );
 
   useEffect(() => {
-    if (!newColumns.length) return;
+    if (!newColumns.length) {
+      return;
+    }
+    const SortableWrapper = React.forwardRef((props: any, ref: any) => (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={store.getState().script.scripts.map((s) => ({ ...s, id: s.uuid }))}
+          strategy={verticalListSortingStrategy}
+        >
+          <table ref={ref} {...props} />
+        </SortableContext>
+      </DndContext>
+    ));
+    SortableWrapper.displayName = "SortableWrapper";
 
-    const dealColumns = newColumns.filter((item) => item.width !== -1);
+    const dealColumns: ColumnProps[] = newColumns.filter((item) => item.width !== -1);
+
     const sortIndex = dealColumns.findIndex((item) => item.key === "sort");
-
-    const SortableItem = (props: any) => {
-      const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
-      const style = { transform: CSS.Transform.toString(transform), transition };
-
-      if (sortIndex !== -1) {
-        // 替换排序列,使其可以拖拽
+    let SortableItem;
+    if (sortIndex !== -1) {
+      const SortableItemComponent = (props: any) => {
+        const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
+        const style = {
+          transform: CSS.Transform.toString(transform),
+          transition,
+        };
         props.children[sortIndex + 1] = (
           <td className="arco-table-td" style={{ textAlign: "center" }} key="drag">
             <div className="arco-table-cell">
@@ -592,44 +614,92 @@ function ScriptList() {
             </div>
           </td>
         );
-      }
+        return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
+      };
+      SortableItemComponent.displayName = "SortableItem";
+      SortableItem = SortableItemComponent;
+    }
 
-      return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
-    };
-    SortableItem.displayName = "SortableItem";
-
-    const SortableWrapper = React.forwardRef((props: any, ref: any) => (
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={(event: DragEndEvent) => {
-          const { active, over } = event;
-          if (!over) return;
-          if (active.id !== over.id) {
-            dispatch(sortScript({ active: active.id as string, over: over.id as string }));
-          }
-        }}
-      >
-        <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
-          <table ref={ref} {...props} />
-        </SortableContext>
-      </DndContext>
-    ));
-    SortableWrapper.displayName = "SortableWrapper";
-
-    const components: ComponentsProps = {
+    setComponents({
       table: SortableWrapper,
-      body: {
-        // tbody: SortableWrapper,
-        row: SortableItem,
-      },
+      body: { row: SortableItem },
+    });
+    setDealColumns(dealColumns);
+  }, [newColumns, sensors, handleDragEnd]);
+
+  // Memoize batch action handler
+  const handleBatchAction = useCallback(() => {
+    const enableAction = (enable: boolean) => {
+      const uuids = select.map((item) => item.uuid);
+      dispatch(enableLoading({ uuids, loading: true }));
+      Promise.allSettled(uuids.map((uuid) => scriptClient.enable(uuid, enable))).finally(() => {
+        dispatch(updateEnableStatus({ uuids, enable }));
+        dispatch(enableLoading({ uuids, loading: false }));
+      });
     };
 
-    setComponents(components);
-    setDealColumns(dealColumns);
-  }, [newColumns, sensors, sortableItems, dispatch]);
-
-  if (!newColumns.length) return null;
+    switch (action) {
+      case "enable":
+        enableAction(true);
+        break;
+      case "disable":
+        enableAction(false);
+        break;
+      case "export": {
+        const uuids: string[] = select.map((item) => item.uuid);
+        Message.loading({ id: "export", content: t("exporting") });
+        synchronizeClient.export(uuids).then(() => {
+          Message.success({ id: "export", content: t("export_success"), duration: 3000 });
+        });
+        break;
+      }
+      case "delete":
+        if (confirm(t("list.confirm_delete"))) {
+          const uuids = select.map((item) => item.uuid);
+          dispatch(batchDeleteScript(uuids));
+          Promise.allSettled(uuids.map((uuid) => scriptClient.delete(uuid)));
+        }
+        break;
+      case "pin_to_top":
+        if (select.length > 0) {
+          const currentScripts = store.getState().script.scripts;
+          [...select].reverse().forEach((script) => {
+            const scriptIndex = currentScripts.findIndex((s) => s.uuid === script.uuid);
+            if (scriptIndex > 0) {
+              dispatch(sortScript({ active: script.uuid, over: currentScripts[0].uuid }));
+            }
+          });
+          Message.success({ content: t("scripts_pinned_to_top"), duration: 3000 });
+        }
+        break;
+      case "check_update":
+        if (confirm(t("list.confirm_update")!)) {
+          select.forEach((item, index, array) => {
+            if (!item.checkUpdateUrl) {
+              return;
+            }
+            Message.warning({ id: "checkupdateStart", content: t("starting_updates") });
+            scriptClient
+              .requestCheckUpdate(item.uuid)
+              .then((res) => {
+                if (res) {
+                  Message.warning({ id: "checkupdate", content: `${i18nName(item)} ${t("new_version_available")}` });
+                }
+                if (index === array.length - 1) {
+                  Message.success({ id: "checkupdateEnd", content: t("checked_for_all_selected") });
+                }
+              })
+              .catch((e) => {
+                Message.error({ id: "checkupdate", content: `${t("update_check_failed")}: ${e.message}` });
+              });
+          });
+        }
+        break;
+      default:
+        Message.error(t("unknown_operation")!);
+        break;
+    }
+  }, [action, select, dispatch, t]);
 
   return (
     <Card id="script-list" className="script-list" style={{ height: "100%", overflowY: "auto" }}>
@@ -643,7 +713,7 @@ function ScriptList() {
                   style={{ minWidth: "100px" }}
                   size="mini"
                   value={action}
-                  onChange={(value) => setAction(value)}
+                  onChange={setAction}
                 >
                   <Select.Option key="enable" value="enable">
                     {t("enable")}
@@ -664,96 +734,7 @@ function ScriptList() {
                     {t("check_update")}
                   </Select.Option>
                 </Select>
-                <Button
-                  type="primary"
-                  size="mini"
-                  onClick={() => {
-                    const enableAction = (enable: boolean) => {
-                      const uuids = select.map((item) => item.uuid);
-                      dispatch(enableLoading({ uuids, loading: true }));
-                      Promise.allSettled(uuids.map((uuid) => scriptClient.enable(uuid, enable))).finally(() => {
-                        dispatch(updateEnableStatus({ uuids, enable }));
-                        dispatch(enableLoading({ uuids, loading: false }));
-                      });
-                    };
-                    switch (action) {
-                      case "enable":
-                        enableAction(true);
-                        return;
-                      case "disable":
-                        enableAction(false);
-                        return;
-                      case "export": {
-                        const uuids = select.map((item) => item.uuid);
-                        Message.loading({ id: "export", content: t("exporting") });
-                        synchronizeClient.export(uuids).then(() => {
-                          Message.success({ id: "export", content: t("export_success"), duration: 3000 });
-                        });
-                        return;
-                      }
-                      case "delete":
-                        if (confirm(t("list.confirm_delete"))) {
-                          const uuids = select.map((item) => item.uuid);
-                          dispatch(batchDeleteScript(uuids));
-                          Promise.allSettled(uuids.map((uuid) => scriptClient.delete(uuid)));
-                        }
-                        return;
-                      case "pin_to_top":
-                        // 将选中的脚本置顶
-                        if (select.length > 0) {
-                          // 获取当前所有脚本列表
-                          const currentScripts = store.getState().script.scripts;
-                          // 将选中的脚本依次置顶（从后往前，保持选中脚本之间的相对顺序）
-                          [...select].reverse().forEach((script) => {
-                            // 找到脚本当前的位置
-                            const scriptIndex = currentScripts.findIndex((s) => s.uuid === script.uuid);
-                            if (scriptIndex > 0) {
-                              // 如果不是已经在最顶部
-                              // 将脚本置顶（移动到第一个位置）
-                              dispatch(sortScript({ active: script.uuid, over: currentScripts[0].uuid }));
-                            }
-                          });
-                          Message.success({ content: t("scripts_pinned_to_top"), duration: 3000 });
-                        }
-                        return;
-                      case "check_update":
-                        // 批量检查更新
-                        if (confirm(t("list.confirm_update")!)) {
-                          select.forEach((item, index, array) => {
-                            if (!item.checkUpdateUrl) return;
-                            Message.warning({ id: "checkupdateStart", content: t("starting_updates") });
-                            scriptClient
-                              .requestCheckUpdate(item.uuid)
-                              .then((res) => {
-                                if (res) {
-                                  // 需要更新
-                                  Message.warning({
-                                    id: "checkupdate",
-                                    content: `${i18nName(item)} ${t("new_version_available")}`,
-                                  });
-                                }
-                                if (index === array.length - 1) {
-                                  // 当前元素是最后一个
-                                  Message.success({
-                                    id: "checkupdateEnd",
-                                    content: t("checked_for_all_selected"),
-                                  });
-                                }
-                              })
-                              .catch((e) => {
-                                Message.error({
-                                  id: "checkupdate",
-                                  content: `${t("update_check_failed")}: ${e.message}`,
-                                });
-                              });
-                          });
-                        }
-                        return;
-                      default:
-                        Message.error(t("unknown_operation")!);
-                    }
-                  }}
-                >
+                <Button type="primary" size="mini" onClick={handleBatchAction}>
                   {t("confirm")}
                 </Button>
                 <Divider type="horizontal" />
@@ -775,39 +756,39 @@ function ScriptList() {
                     <Menu>
                       <Menu.Item
                         key="auto"
-                        onClick={() => {
+                        onClick={() =>
                           setNewColumns((cols) => {
                             cols[selectColumn].width = 0;
                             return [...cols];
-                          });
-                        }}
+                          })
+                        }
                       >
-                        自动
+                        {t("auto")}
                       </Menu.Item>
                       <Menu.Item
                         key="hide"
-                        onClick={() => {
+                        onClick={() =>
                           setNewColumns((cols) => {
                             cols[selectColumn].width = -1;
                             return [...cols];
-                          });
-                        }}
+                          })
+                        }
                       >
-                        隐藏
+                        {t("hide")}
                       </Menu.Item>
                       <Menu.Item
                         key="custom"
-                        onClick={() => {
+                        onClick={() =>
                           setNewColumns((cols) => {
                             cols[selectColumn].width =
-                              (cols[selectColumn].width as number) > 0
-                                ? cols[selectColumn].width
+                              (newColumns[selectColumn].width as number) > 0
+                                ? newColumns[selectColumn].width
                                 : columns[selectColumn].width;
                             return [...cols];
-                          });
-                        }}
+                          })
+                        }
                       >
-                        自定义
+                        {t("custom")}
                       </Menu.Item>
                     </Menu>
                   }
@@ -824,12 +805,12 @@ function ScriptList() {
                           ? t("hide")
                           : newColumns[selectColumn].width?.toString()
                     }
-                    onChange={(val) => {
+                    onChange={(val) =>
                       setNewColumns((cols) => {
                         cols[selectColumn].width = parseInt(val, 10);
                         return [...cols];
-                      });
-                    }}
+                      })
+                    }
                   />
                 </Dropdown>
                 <Button
@@ -847,14 +828,11 @@ function ScriptList() {
                 </Button>
                 <Button
                   size="mini"
-                  onClick={() => {
+                  onClick={() =>
                     setNewColumns((cols) =>
-                      cols.map((col, index) => ({
-                        ...col,
-                        width: columns[index].width,
-                      }))
-                    );
-                  }}
+                      cols.map((col, index) => ({ ...col, width: columns[index].width }))
+                    )
+                  }
                 >
                   {t("reset")}
                 </Button>
@@ -872,9 +850,6 @@ function ScriptList() {
           tableLayoutFixed
           columns={dealColumns.length ? dealColumns : columns}
           data={scriptList}
-          // virtualized
-          // rowHeight={48}
-          // scroll={{ y: "calc(100vh - 240px)" }}
           pagination={{
             total: scriptList.length,
             pageSize: scriptList.length,
@@ -890,9 +865,13 @@ function ScriptList() {
           }}
         />
         {userConfig && (
-          <UserConfigPanel script={userConfig.script} userConfig={userConfig.userConfig} values={userConfig.values} />
+          <MemoizedUserConfigPanel
+            script={userConfig.script}
+            userConfig={userConfig.userConfig}
+            values={userConfig.values}
+          />
         )}
-        <CloudScriptPlan
+        <MemoizedCloudScriptPlan
           script={cloudScript}
           onClose={() => setCloudScript(undefined)}
         />

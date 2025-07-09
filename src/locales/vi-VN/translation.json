@@ -362,6 +362,7 @@
   "guide_setting_sync_content": "Tính Năng Đồng Bộ Script Cho Phép Bạn Dễ Dàng Đồng Bộ Nội Dung Script Của Thiết Bị Này Lên Cloud. Nếu Bạn Chọn Tùy Chọn Đồng Bộ Xóa, Khi Một Script Được Xóa Trên Thiết Bị Này, Nó Cũng Sẽ Được Xóa Khỏi Cloud. Bạn Cũng Có Thể Cập Nhật Phiên Bản Script Ở Đây Để Có Được Các Tính Năng Mạnh Mẽ Hơn.",
   "auto": "Tự Động",
   "hide": "Ẩn",
+  "custom": "自定义",
   "resize_column_width": "Điều Chỉnh Kích Thước Cột",
   "collapse": "Thu Gọn",
   "expand": "Mở Rộng",

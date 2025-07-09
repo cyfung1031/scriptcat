@@ -362,6 +362,7 @@
   "guide_setting_sync_content": "The script synchronization feature allows you to easily sync the script content of this device to the cloud. If you select the option to sync deletions, when a script is deleted on this device, it will also be deleted from the cloud. You can also update the script version here to get more powerful features.",
   "auto": "Auto",
   "hide": "Hide",
+  "custom": "自定义",
   "resize_column_width": "Resize Column",
   "collapse": "Collapse",
   "expand": "Expand",
