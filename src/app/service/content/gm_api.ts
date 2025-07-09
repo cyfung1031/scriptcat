@@ -260,6 +260,9 @@ export class GM_Base implements IGM_Base {
   @GMContext.protected()
   public context!: any;
 
+  @GMContext.protected()
+  public grantSet!: any;
+
   constructor(
     options: any = null
   ) {

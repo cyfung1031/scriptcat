@@ -25,8 +25,11 @@ export function createContext(scriptRes: ScriptRunResource, GMInfo: any, envPref
     },
     protect,
     __methodInject__(grant: string): boolean {
+      const grantSet = this.grantSet || (this.grantSet = new Set());
       const s = GMContextApiGet(grant);
       if (!s) return false;
+      if (grantSet.has(grant)) return true;
+      grantSet.add(grant);
       for (const t of s) {
         const fnKeyArray = t.fnKey.split('.');
         const m = fnKeyArray.length - 1;
@@ -35,8 +38,9 @@ export function createContext(scriptRes: ScriptRunResource, GMInfo: any, envPref
           const part = fnKeyArray[i];
           g = g[part] || (g[part] = {});
         }
-        if (g[m]) continue;
-        g[m] = t.api.bind(this);
+        const finalPart = fnKeyArray[m];
+        if (g[finalPart]) continue;
+        g[finalPart] = t.api.bind(this);
         const depend = t?.param?.depend;
         if (depend) {
           for (const grant of depend) {
