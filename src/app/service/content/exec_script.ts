@@ -1,14 +1,13 @@
 import LoggerCore from "@App/app/logger/core";
 import type Logger from "@App/app/logger/logger";
 import { createContext } from "./create_context";
-import type { GMInfoEnv, ScriptFunc, ScriptFuncVar } from "./types";
+import type { GMInfoEnv, ScriptFunc } from "./types";
 import { compileScript, proxyContext } from "./utils";
 import type { Message } from "@Packages/message/types";
 import type { ScriptLoadInfo } from "../service_worker/types";
 import type { ValueUpdateData } from "./types";
 import { evaluateGMInfo } from "./gm_info";
 import { type IGM_Base } from "./gm_api";
-import { protect } from "./gm_context";
 
 // 执行脚本,控制脚本执行与停止
 export default class ExecScript {
@@ -70,8 +69,8 @@ export default class ExecScript {
 
   exec() {
     this.logger.debug("script start");
-    const GM: ScriptFuncVar = { context: this.proxyContent, protect };
-    return this.scriptFunc.call(this.proxyContent, GM);
+    const context = this.proxyContent;
+    return this.scriptFunc.call(null, context);
   }
 
   stop() {

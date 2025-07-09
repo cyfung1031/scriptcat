@@ -236,7 +236,6 @@ export class GM_Base implements IGM_Base {
   @GMContext.protected()
   protected runFlag!: string;
 
-
   @GMContext.protected()
   protected prefix!: string;
 
@@ -257,6 +256,9 @@ export class GM_Base implements IGM_Base {
 
   @GMContext.protected()
   public __methodInject__!: any;
+
+  @GMContext.protected()
+  public context!: any;
 
   constructor(
     options: any = null

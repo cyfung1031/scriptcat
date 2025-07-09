@@ -1,12 +1,6 @@
 // types
 
-export type ScriptFuncVar = {
-  [key: string]: any;
-  context: { [key: string]: any };
-  protect: { [key: string]: any };
-}
-
-export type ScriptFunc = (GM: ScriptFuncVar) => any;
+export type ScriptFunc = (context: { [key: string]: any }) => any;
 
 // exec_script.ts
 

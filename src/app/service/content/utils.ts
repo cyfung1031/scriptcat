@@ -20,7 +20,7 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   const sourceURL = `//# sourceURL=${chrome.runtime.getURL(`/${encodeURI(scriptRes.name)}.user.js`)}`;
   const code = [requireCode, scriptCode, sourceURL].join("\n");
   const name = scriptRes.name.replace(/['"]/g, "\\$1");
-  return `  with(GM.context){
+  return `  with(context){
     with(protect){
       return (function(){
           try {
@@ -57,7 +57,7 @@ export function compileInjectScript(
   autoDeleteMountFunction: boolean = false
 ): string {
   scriptCode = scriptCode ?? script.code;
-  return `window['${script.flag}'] = function(context, GM_info){
+  return `window['${script.flag}'] = function(context){
 ${autoDeleteMountFunction ? `  try{delete window['${script.flag}'];}catch(e){};` : ""}${scriptCode}}`;
 }
 
