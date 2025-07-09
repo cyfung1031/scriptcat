@@ -252,7 +252,7 @@ export class GM_Base implements IGM_Base {
   protected EE!: EventEmitter;
 
   @GMContext.protected()
-  protected protected!: any;
+  protected protect!: any;
 
   @GMContext.protected()
   public __methodInject__!: any;
