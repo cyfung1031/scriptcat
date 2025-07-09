@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Avatar,
   Button,
@@ -99,6 +99,7 @@ function ScriptList() {
   const { t } = useTranslation();
   const [components, setComponents] = useState<ComponentsProps | undefined>(undefined);
   const [dealColumns, setDealColumns] = useState<ColumnProps[]>([]);
+  const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
 
   useEffect(() => {
     dispatch(fetchScriptList()).then((action) => {
@@ -108,6 +109,214 @@ function ScriptList() {
       }
     });
   }, [dispatch]);
+
+  // 设置列和判断是否打开用户配置
+  useEffect(() => {
+    if (openUserConfig) {
+      const dao = new ScriptDAO();
+      dao.get(openUserConfig).then((script) => {
+        if (script && script.config) {
+          new ValueClient(message).getScriptValue(script).then((values) => {
+            setUserConfig({
+              script,
+              userConfig: script.config!,
+              values: values,
+            });
+          });
+        }
+      });
+    }
+    systemConfig.getScriptListColumnWidth().then((columnWidth) => {
+      setNewColumns(
+        columns.map((item) => {
+          item.width = columnWidth[item.key!] ?? item.width;
+          return item;
+        })
+      );
+    });
+  }, [openUserConfig]);
+
+  // 处理拖拽排序
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const EnableSwitch = React.memo(({ item }: { item: ScriptLoading }) => (
+    <Switch
+      checked={item.status === SCRIPT_STATUS_ENABLE}
+      loading={item.enableLoading}
+      disabled={item.enableLoading}
+      onChange={(checked) => {
+        dispatch(requestEnableScript({ uuid: item.uuid, enable: checked }));
+      }}
+    />
+  ));
+  EnableSwitch.displayName = 'EnableSwitch';
+
+  const ScriptName = React.memo(({ item }: { item: ScriptLoading }) => (
+    <Tooltip content={item.name} position="tl">
+      <Link to={`/script/editor/${item.uuid}`} style={{ textDecoration: "none" }}>
+        <Text
+          style={{
+            display: "block",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            lineHeight: "20px",
+          }}
+        >
+          <ScriptIcons script={item} size={20} />
+          {i18nName(item)}
+        </Text>
+      </Link>
+    </Tooltip>
+  ));
+  ScriptName.displayName = 'ScriptName';
+
+  const ApplyToRunStatus = React.memo(({ item }: { item: ScriptLoading }) => {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+
+    const toLogger = useCallback(() => {
+      navigate({
+        pathname: "logger",
+        search: `query=${encodeURIComponent(
+          JSON.stringify([
+            { key: "uuid", value: item.uuid },
+            { key: "component", value: "GM_log" },
+          ])
+        )}`,
+      });
+    }, [navigate, item.uuid]);
+    ApplyToRunStatus.displayName = 'ApplyToRunStatus';
+
+    const favoriteAvatars = useMemo(() => {
+      if (!item.favorite) return null;
+      // 排序并且只显示前5个
+      // 排序将有icon的放在前面
+      const sorted = [...item.favorite].sort((a, b) => {
+        if (a.icon && !b.icon) return -1;
+        if (!a.icon && b.icon) return 1;
+        return a.match.localeCompare(b.match);
+      });
+      const sliced = sorted.slice(0, 4);
+      return sliced.map((fav) => (
+        <Avatar
+          key={fav.match}
+          shape="square"
+          style={{ backgroundColor: "unset", borderWidth: 1 }}
+          className={fav.website ? "cursor-pointer" : "cursor-default"}
+          onClick={() => {
+            if (fav.website) {
+              window.open(fav.website, "_blank");
+            }
+          }}
+        >
+          {fav.icon ? <img title={fav.match} src={fav.icon} /> : <TbWorldWww title={fav.match} color="#aaa" size={24} />}
+        </Avatar>
+      ));
+    }, [item.favorite]);
+
+    if (item.type === SCRIPT_TYPE_NORMAL) {
+      return (
+        <Avatar.Group size={20}>
+          {favoriteAvatars}
+          {item.favorite && item.favorite.length > 4 && "..."}
+        </Avatar.Group>
+      );
+    }
+
+    let tooltip = "";
+    if (item.type === SCRIPT_TYPE_BACKGROUND) {
+      tooltip = t("background_script_tooltip");
+    } else {
+      tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
+    }
+
+    return (
+      <Tooltip content={tooltip}>
+        <Tag
+          icon={<IconClockCircle />}
+          color="blue"
+          bordered
+          style={{ cursor: "pointer" }}
+          onClick={toLogger}
+        >
+          {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
+        </Tag>
+      </Tooltip>
+    );
+  });
+
+  const ScriptActions = React.memo(({ item }: { item: ScriptLoading }) => {
+    const dispatch = useAppDispatch();
+    const { t } = useTranslation();
+
+    const handleDelete = useCallback(() => {
+      dispatch(requestDeleteScript(item.uuid));
+    }, [dispatch, item.uuid]);
+
+    const handleConfig = useCallback(() => {
+      new ValueClient(message).getScriptValue(item).then((newValues) => {
+        setUserConfig({
+          userConfig: { ...item.config! },
+          script: item,
+          values: newValues,
+        });
+      });
+    }, [item]);
+    ScriptActions.displayName = 'ScriptActions';
+
+    const handleRunStop = useCallback(async () => {
+      if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
+        Message.loading({ id: "script-stop", content: t("stopping_script") });
+        await dispatch(requestStopScript(item.uuid));
+        Message.success({ id: "script-stop", content: t("script_stopped"), duration: 3000 });
+      } else {
+        Message.loading({ id: "script-run", content: t("starting_script") });
+        await dispatch(requestRunScript(item.uuid));
+        Message.success({ id: "script-run", content: t("script_started"), duration: 3000 });
+      }
+    }, [dispatch, item.uuid, item.runStatus, t]);
+
+    const handleCloud = useCallback(() => {
+      setCloudScript(item);
+    }, [item]);
+
+    return (
+      <Button.Group>
+        <Link to={`/script/editor/${item.uuid}`}>
+          <Button type="text" icon={<RiPencilFill />} style={{ color: "var(--color-text-2)" }} />
+        </Link>
+        <Popconfirm title={t("confirm_delete_script")} icon={<RiDeleteBin5Fill />} onOk={handleDelete}>
+          <Button
+            type="text"
+            icon={<RiDeleteBin5Fill />}
+            loading={item.actionLoading}
+            style={{ color: "var(--color-text-2)" }}
+          />
+        </Popconfirm>
+        {item.config && (
+          <Button type="text" icon={<RiSettings3Fill />} onClick={handleConfig} style={{ color: "var(--color-text-2)" }} />
+        )}
+        {item.type !== SCRIPT_TYPE_NORMAL && (
+          <Button
+            type="text"
+            icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
+            loading={item.actionLoading}
+            onClick={handleRunStop}
+            style={{ color: "var(--color-text-2)" }}
+          />
+        )}
+        {item.metadata.cloudcat && (
+          <Button type="text" icon={<RiUploadCloudFill />} onClick={handleCloud} style={{ color: "var(--color-text-2)" }} />
+        )}
+      </Button.Group>
+    );
+  });
 
   const columns: ColumnProps[] = useMemo(
     () => [
@@ -144,18 +353,7 @@ function ScriptList() {
           },
         ],
         onFilter: (value, row) => row.status === value,
-        render: (col, item: ScriptLoading) => {
-          return (
-            <Switch
-              checked={item.status === SCRIPT_STATUS_ENABLE}
-              loading={item.enableLoading}
-              disabled={item.enableLoading}
-              onChange={(checked) => {
-                dispatch(requestEnableScript({ uuid: item.uuid, enable: checked }));
-              }}
-            />
-          );
-        },
+        render: (col, item: ScriptLoading) => <EnableSwitch item={item} />,
       },
       {
         key: "name",
@@ -203,31 +401,7 @@ function ScriptList() {
           }
         },
         className: "max-w-[240px]",
-        render: (col, item: ListType) => {
-          return (
-            <Tooltip content={col} position="tl">
-              <Link
-                to={`/script/editor/${item.uuid}`}
-                style={{
-                  textDecoration: "none",
-                }}
-              >
-                <Text
-                  style={{
-                    display: "block",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    lineHeight: "20px",
-                  }}
-                >
-                  <ScriptIcons script={item} size={20} />
-                  {i18nName(item)}
-                </Text>
-              </Link>
-            </Tooltip>
-          );
-        },
+        render: (col, item: ListType) => <ScriptName item={item} />,
       },
       {
         title: t("version"),
@@ -244,85 +418,7 @@ function ScriptList() {
         title: t("apply_to_run_status"),
         width: t("script_list_apply_to_run_status_width"),
         className: "apply_to_run_status",
-        render(col, item: ListType) {
-          const toLogger = () => {
-            navigate({
-              pathname: "logger",
-              search: `query=${encodeURIComponent(
-                JSON.stringify([
-                  { key: "uuid", value: item.uuid },
-                  {
-                    key: "component",
-                    value: "GM_log",
-                  },
-                ])
-              )}`,
-            });
-          };
-          if (item.type === SCRIPT_TYPE_NORMAL) {
-            // 处理站点icon
-            return (
-              <>
-                <Avatar.Group size={20}>
-                  {item.favorite &&
-                    // 排序并且只显示前5个
-                    // 排序将有icon的放在前面
-                    [...item.favorite]
-                      .sort((a, b) => {
-                        if (a.icon && !b.icon) return -1;
-                        if (!a.icon && b.icon) return 1;
-                        return a.match.localeCompare(b.match);
-                      })
-                      .slice(0, 4)
-                      .map((fav) => (
-                        <Avatar
-                          key={fav.match}
-                          shape="square"
-                          style={{
-                            backgroundColor: "unset",
-                            borderWidth: 1,
-                          }}
-                          className={fav.website ? "cursor-pointer" : "cursor-default"}
-                          onClick={() => {
-                            if (fav.website) {
-                              window.open(fav.website, "_blank");
-                            }
-                          }}
-                        >
-                          {fav.icon ? (
-                            <img title={fav.match} src={fav.icon} />
-                          ) : (
-                            <TbWorldWww title={fav.match} color="#aaa" size={24} />
-                          )}
-                        </Avatar>
-                      ))}
-                  {item.favorite && item.favorite.length > 4 && "..."}
-                </Avatar.Group>
-              </>
-            );
-          }
-          let tooltip = "";
-          if (item.type === SCRIPT_TYPE_BACKGROUND) {
-            tooltip = t("background_script_tooltip");
-          } else {
-            tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
-          }
-          return (
-            <Tooltip content={tooltip}>
-              <Tag
-                icon={<IconClockCircle />}
-                color="blue"
-                bordered
-                style={{
-                  cursor: "pointer",
-                }}
-                onClick={toLogger}
-              >
-                {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
-              </Tag>
-            </Tooltip>
-          );
-        },
+        render: (col, item: ListType) => <ApplyToRunStatus item={item} />,
       },
       {
         title: t("source"),
@@ -343,9 +439,7 @@ function ScriptList() {
                   icon={<IconLink />}
                   color="orange"
                   bordered
-                  style={{
-                    cursor: "pointer",
-                  }}
+                  style={{ cursor: "pointer" }}
                 >
                   {t("subscription_installation")}
                 </Tag>
@@ -358,9 +452,7 @@ function ScriptList() {
                 icon={<IconEdit />}
                 color="purple"
                 bordered
-                style={{
-                  cursor: "pointer",
-                }}
+                style={{ cursor: "pointer" }}
               >
                 {t("manually_created")}
               </Tag>
@@ -378,9 +470,7 @@ function ScriptList() {
                 icon={<IconUserAdd color="" />}
                 color="green"
                 bordered
-                style={{
-                  cursor: "pointer",
-                }}
+                style={{ cursor: "pointer" }}
               >
                 {t("user_installation")}
               </Tag>
@@ -405,13 +495,7 @@ function ScriptList() {
         width: 80,
         align: "center",
         render() {
-          return (
-            <IconMenu
-              style={{
-                cursor: "move",
-              }}
-            />
-          );
+          return <IconMenu style={{ cursor: "move" }} />;
         },
       },
       {
@@ -424,39 +508,25 @@ function ScriptList() {
         render(col, script: Script) {
           return (
             <span
-              style={{
-                cursor: "pointer",
-              }}
+              style={{ cursor: "pointer" }}
               onClick={() => {
                 if (!script.checkUpdateUrl) {
                   Message.warning(t("update_not_supported")!);
                   return;
                 }
-                Message.info({
-                  id: "checkupdate",
-                  content: t("checking_for_updates"),
-                });
+                Message.info({ id: "checkupdate", content: t("checking_for_updates") });
                 scriptClient
                   .requestCheckUpdate(script.uuid)
                   .then((res) => {
-                    console.log("res", res);
+                    console.log("res", res); // console 打印？
                     if (res) {
-                      Message.warning({
-                        id: "checkupdate",
-                        content: t("new_version_available"),
-                      });
+                      Message.warning({ id: "checkupdate", content: t("new_version_available") });
                     } else {
-                      Message.success({
-                        id: "checkupdate",
-                        content: t("latest_version"),
-                      });
+                      Message.success({ id: "checkupdate", content: t("latest_version") });
                     }
                   })
                   .catch((e) => {
-                    Message.error({
-                      id: "checkupdate",
-                      content: `${t("update_check_failed")}: ${e.message}`,
-                    });
+                    Message.error({ id: "checkupdate", content: `${t("update_check_failed")}: ${e.message}` });
                   });
               }}
             >
@@ -470,275 +540,100 @@ function ScriptList() {
         dataIndex: "action",
         key: "action",
         width: 160,
-        render(col, item: ScriptLoading) {
-          return (
-            <Button.Group>
-              <Link to={`/script/editor/${item.uuid}`}>
-                <Button
-                  type="text"
-                  icon={<RiPencilFill />}
-                  style={{
-                    color: "var(--color-text-2)",
-                  }}
-                />
-              </Link>
-              <Popconfirm
-                title={t("confirm_delete_script")}
-                icon={<RiDeleteBin5Fill />}
-                onOk={() => {
-                  dispatch(requestDeleteScript(item.uuid));
-                }}
-              >
-                <Button
-                  type="text"
-                  icon={<RiDeleteBin5Fill />}
-                  loading={item.actionLoading}
-                  style={{
-                    color: "var(--color-text-2)",
-                  }}
-                />
-              </Popconfirm>
-              {item.config && (
-                <Button
-                  type="text"
-                  icon={<RiSettings3Fill />}
-                  onClick={() => {
-                    new ValueClient(message).getScriptValue(item).then((newValues) => {
-                      setUserConfig({
-                        userConfig: { ...item.config! },
-                        script: item,
-                        values: newValues,
-                      });
-                    });
-                  }}
-                  style={{
-                    color: "var(--color-text-2)",
-                  }}
-                />
-              )}
-              {item.type !== SCRIPT_TYPE_NORMAL && (
-                <Button
-                  type="text"
-                  icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
-                  loading={item.actionLoading}
-                  onClick={async () => {
-                    if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
-                      // Stop script
-                      Message.loading({
-                        id: "script-stop",
-                        content: t("stopping_script"),
-                      });
-                      await dispatch(requestStopScript(item.uuid));
-                      Message.success({
-                        id: "script-stop",
-                        content: t("script_stopped"),
-                        duration: 3000,
-                      });
-                    } else {
-                      Message.loading({
-                        id: "script-run",
-                        content: t("starting_script"),
-                      });
-                      await dispatch(requestRunScript(item.uuid));
-                      Message.success({
-                        id: "script-run",
-                        content: t("script_started"),
-                        duration: 3000,
-                      });
-                    }
-                  }}
-                  style={{
-                    color: "var(--color-text-2)",
-                  }}
-                />
-              )}
-              {item.metadata.cloudcat && (
-                <Button
-                  type="text"
-                  icon={<RiUploadCloudFill />}
-                  onClick={() => {
-                    setCloudScript(item);
-                  }}
-                  style={{
-                    color: "var(--color-text-2)",
-                  }}
-                />
-              )}
-            </Button.Group>
-          );
-        },
+        render: (col, item: ScriptLoading) => <ScriptActions item={item} />,
       },
     ],
     [t, dispatch, inputRef, navigate]
   );
 
-  const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
-
-  // 设置列和判断是否打开用户配置
-  useEffect(() => {
-    if (openUserConfig) {
-      const dao = new ScriptDAO();
-      dao.get(openUserConfig).then((script) => {
-        if (script && script.config) {
-          new ValueClient(message).getScriptValue(script).then((values) => {
-            setUserConfig({
-              script,
-              userConfig: script.config!,
-              values: values,
-            });
-          });
-        }
-      });
-    }
-    systemConfig.getScriptListColumnWidth().then((columnWidth) => {
-      setNewColumns(
-        columns.map((item) => {
-          item.width = columnWidth[item.key!] ?? item.width;
-          return item;
-        })
-      );
-    });
-  }, []);
-
-  // 处理拖拽排序
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const sortableItems = useMemo(() => scriptList.map((s) => s.uuid), [scriptList]);
 
   useEffect(() => {
-    if (!newColumns.length) {
-      return;
-    }
-    const SortableWrapper = (props: any, ref: any) => {
-      return (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={(event: DragEndEvent) => {
-            const { active, over } = event;
-            if (!over) {
-              return;
-            }
-            if (active.id !== over.id) {
-              dispatch(sortScript({ active: active.id as string, over: over.id as string }));
-            }
-          }}
-        >
-          <SortableContext
-            items={store.getState().script.scripts.map((s) => ({ ...s, id: s.uuid }))}
-            strategy={verticalListSortingStrategy}
-          >
-            <table ref={ref} {...props} />
-          </SortableContext>
-        </DndContext>
-      );
-    };
-    const dealColumns: ColumnProps[] = [];
+    if (!newColumns.length) return;
 
-    newColumns.forEach((item) => {
-      switch (item.width) {
-        case -1:
-          break;
-        default:
-          dealColumns.push(item);
-          break;
-      }
-    });
-
+    const dealColumns = newColumns.filter((item) => item.width !== -1);
     const sortIndex = dealColumns.findIndex((item) => item.key === "sort");
-    let SortableItem;
-    if (sortIndex !== -1) {
-      const SortableItemComponent = (props: any) => {
-        const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
 
-        const style = {
-          transform: CSS.Transform.toString(transform),
-          transition,
-        };
+    const SortableItem = (props: any) => {
+      const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
+      const style = { transform: CSS.Transform.toString(transform), transition };
 
+      if (sortIndex !== -1) {
         // 替换排序列,使其可以拖拽
         props.children[sortIndex + 1] = (
-          <td
-            className="arco-table-td"
-            style={{
-              textAlign: "center",
-            }}
-            key="drag"
-          >
+          <td className="arco-table-td" style={{ textAlign: "center" }} key="drag">
             <div className="arco-table-cell">
-              <IconMenu
-                style={{
-                  cursor: "move",
-                }}
-                {...listeners}
-              />
+              <IconMenu style={{ cursor: "move" }} {...listeners} />
             </div>
           </td>
         );
+      }
 
-        return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
-      };
-      SortableItemComponent.displayName = "SortableItem";
-      SortableItem = SortableItemComponent;
-    }
+      return <tr ref={setNodeRef} style={style} {...attributes} {...props} />;
+    };
+    SortableItem.displayName = "SortableItem";
 
-    setComponents({
-      table: React.forwardRef(SortableWrapper),
+    const SortableWrapper = React.forwardRef((props: any, ref: any) => (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={(event: DragEndEvent) => {
+          const { active, over } = event;
+          if (!over) return;
+          if (active.id !== over.id) {
+            dispatch(sortScript({ active: active.id as string, over: over.id as string }));
+          }
+        }}
+      >
+        <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
+          <table ref={ref} {...props} />
+        </SortableContext>
+      </DndContext>
+    ));
+    SortableWrapper.displayName = "SortableWrapper";
+
+    const components: ComponentsProps = {
+      table: SortableWrapper,
       body: {
         // tbody: SortableWrapper,
         row: SortableItem,
       },
-    });
+    };
+
+    setComponents(components);
     setDealColumns(dealColumns);
-  }, [newColumns]);
+  }, [newColumns, sensors, sortableItems, dispatch]);
 
   return (
-    <Card
-      id="script-list"
-      className="script-list"
-      style={{
-        height: "100%",
-        overflowY: "auto",
-      }}
-    >
+    <Card id="script-list" className="script-list" style={{ height: "100%", overflowY: "auto" }}>
       <Space direction="vertical">
         {showAction && (
           <Card>
-            <div
-              className="flex flex-row justify-between items-center"
-              style={{
-                padding: "8px 6px",
-              }}
-            >
+            <div className="flex flex-row justify-between items-center" style={{ padding: "8px 6px" }}>
               <Space direction="horizontal">
                 <Typography.Text>{t("batch_operations")}:</Typography.Text>
                 <Select
                   style={{ minWidth: "100px" }}
                   size="mini"
                   value={action}
-                  onChange={(value) => {
-                    setAction(value);
-                  }}
+                  onChange={(value) => setAction(value)}
                 >
-                  <Select.Option key={"enable"} value="enable">
+                  <Select.Option key="enable" value="enable">
                     {t("enable")}
                   </Select.Option>
-                  <Select.Option key={"disable"} value="disable">
+                  <Select.Option key="disable" value="disable">
                     {t("disable")}
                   </Select.Option>
-                  <Select.Option key={"export"} value="export">
+                  <Select.Option key="export" value="export">
                     {t("export")}
                   </Select.Option>
-                  <Select.Option key={"delete"} value="delete">
+                  <Select.Option key="delete" value="delete">
                     {t("delete")}
                   </Select.Option>
-                  <Select.Option key={"pin_to_top"} value="pin_to_top">
+                  <Select.Option key="pin_to_top" value="pin_to_top">
                     {t("pin_to_top")}
                   </Select.Option>
-                  <Select.Option key={"check_update"} value="check_update">
+                  <Select.Option key="check_update" value="check_update">
                     {t("check_update")}
                   </Select.Option>
                 </Select>
@@ -748,36 +643,26 @@ function ScriptList() {
                   onClick={() => {
                     const enableAction = (enable: boolean) => {
                       const uuids = select.map((item) => item.uuid);
-                      dispatch(enableLoading({ uuids: uuids, loading: true }));
+                      dispatch(enableLoading({ uuids, loading: true }));
                       Promise.allSettled(uuids.map((uuid) => scriptClient.enable(uuid, enable))).finally(() => {
-                        dispatch(updateEnableStatus({ uuids: uuids, enable: enable }));
-                        dispatch(enableLoading({ uuids: uuids, loading: false }));
+                        dispatch(updateEnableStatus({ uuids, enable }));
+                        dispatch(enableLoading({ uuids, loading: false }));
                       });
                     };
                     switch (action) {
                       case "enable":
                         enableAction(true);
-                        break;
+                        return;
                       case "disable":
                         enableAction(false);
-                        break;
+                        return;
                       case "export": {
-                        const uuids: string[] = [];
-                        select.forEach((item) => {
-                          uuids.push(item.uuid);
-                        });
-                        Message.loading({
-                          id: "export",
-                          content: t("exporting"),
-                        });
+                        const uuids = select.map((item) => item.uuid);
+                        Message.loading({ id: "export", content: t("exporting") });
                         synchronizeClient.export(uuids).then(() => {
-                          Message.success({
-                            id: "export",
-                            content: t("export_success"),
-                            duration: 3000,
-                          });
+                          Message.success({ id: "export", content: t("export_success"), duration: 3000 });
                         });
-                        break;
+                        return;
                       }
                       case "delete":
                         if (confirm(t("list.confirm_delete"))) {
@@ -785,7 +670,7 @@ function ScriptList() {
                           dispatch(batchDeleteScript(uuids));
                           Promise.allSettled(uuids.map((uuid) => scriptClient.delete(uuid)));
                         }
-                        break;
+                        return;
                       case "pin_to_top":
                         // 将选中的脚本置顶
                         if (select.length > 0) {
@@ -801,23 +686,15 @@ function ScriptList() {
                               dispatch(sortScript({ active: script.uuid, over: currentScripts[0].uuid }));
                             }
                           });
-                          Message.success({
-                            content: t("scripts_pinned_to_top"),
-                            duration: 3000,
-                          });
+                          Message.success({ content: t("scripts_pinned_to_top"), duration: 3000 });
                         }
-                        break;
-                      // 批量检查更新
+                        return;
                       case "check_update":
+                        // 批量检查更新
                         if (confirm(t("list.confirm_update")!)) {
                           select.forEach((item, index, array) => {
-                            if (!item.checkUpdateUrl) {
-                              return;
-                            }
-                            Message.warning({
-                              id: "checkupdateStart",
-                              content: t("starting_updates"),
-                            });
+                            if (!item.checkUpdateUrl) return;
+                            Message.warning({ id: "checkupdateStart", content: t("starting_updates") });
                             scriptClient
                               .requestCheckUpdate(item.uuid)
                               .then((res) => {
@@ -844,10 +721,9 @@ function ScriptList() {
                               });
                           });
                         }
-                        break;
+                        return;
                       default:
                         Message.error(t("unknown_operation")!);
-                        break;
                     }
                   }}
                 >
@@ -859,10 +735,7 @@ function ScriptList() {
                   style={{ minWidth: "80px" }}
                   size="mini"
                   value={newColumns[selectColumn].title?.toString()}
-                  onChange={(val) => {
-                    const index = parseInt(val as string, 10);
-                    setSelectColumn(index);
-                  }}
+                  onChange={(val) => setSelectColumn(parseInt(val, 10))}
                 >
                   {newColumns.map((column, index) => (
                     <Select.Option key={index} value={index}>
@@ -900,8 +773,8 @@ function ScriptList() {
                         onClick={() => {
                           setNewColumns((cols) => {
                             cols[selectColumn].width =
-                              (newColumns[selectColumn].width as number) > 0
-                                ? newColumns[selectColumn].width
+                              (cols[selectColumn].width as number) > 0
+                                ? cols[selectColumn].width
                                 : columns[selectColumn].width;
                             return [...cols];
                           });
@@ -948,24 +821,18 @@ function ScriptList() {
                 <Button
                   size="mini"
                   onClick={() => {
-                    setNewColumns((cols) => {
-                      return cols.map((col, index) => {
-                        col.width = columns[index].width;
-                        return col;
-                      });
-                    });
+                    setNewColumns((cols) =>
+                      cols.map((col, index) => ({
+                        ...col,
+                        width: columns[index].width,
+                      }))
+                    );
                   }}
                 >
                   {t("reset")}
                 </Button>
               </Space>
-              <Button
-                type="primary"
-                size="mini"
-                onClick={() => {
-                  setShowAction(false);
-                }}
-              >
+              <Button type="primary" size="mini" onClick={() => setShowAction(false)}>
                 {t("close")}
               </Button>
             </div>
@@ -983,12 +850,10 @@ function ScriptList() {
             pageSize: scriptList.length,
             hideOnSinglePage: true,
           }}
-          style={{
-            minWidth: "1200px",
-          }}
+          style={{ minWidth: "1200px" }}
           rowSelection={{
             type: "checkbox",
-            onChange(_, selectedRows) {
+            onChange: (_, selectedRows) => {
               setShowAction(true);
               setSelect(selectedRows);
             },
@@ -999,9 +864,7 @@ function ScriptList() {
         )}
         <CloudScriptPlan
           script={cloudScript}
-          onClose={() => {
-            setCloudScript(undefined);
-          }}
+          onClose={() => setCloudScript(undefined)}
         />
       </Space>
     </Card>
