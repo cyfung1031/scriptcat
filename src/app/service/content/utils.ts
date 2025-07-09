@@ -18,27 +18,26 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
       .join("\n");
   }
   const sourceURL = `//# sourceURL=${chrome.runtime.getURL(`/${encodeURI(scriptRes.name)}.user.js`)}`;
-  const code = [requireCode, scriptCode, sourceURL].join("\n");
+  const preCode = [requireCode].join("\n");
+  const code = [scriptCode, sourceURL].join("\n");
   const name = scriptRes.name.replace(/['"]/g, "\\$1");
-  return `  with(context){
+  return `try {
+  with(context){
     with(protect){
-      return (function(){
-          try {
-            return arguments[0].apply(null, []);
-          } catch (e) {
-            if (e.message && e.stack) {
-                console.error("ERROR: Execution of script '${name}' failed! " + e.message);
-                console.log(e.stack);
-            } else {
-                console.error(e);
-            }
-          }
-
-      })(async function(){
-          ${code}
-      })
+      ${preCode}
+      [(async function(){
+        ${code}
+      })()];
     }
-  }`;
+  }
+} catch (e) {
+  if (e.message && e.stack) {
+      console.error("ERROR: Execution of script '${name}' failed! " + e.message);
+      console.log(e.stack);
+  } else {
+      console.error(e);
+  }
+}`;
 }
 
 // 通过脚本代码编译脚本函数
