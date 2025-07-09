@@ -107,7 +107,7 @@ function ScriptList() {
     dispatch(fetchScriptList()).then((action) => {
       if (fetchScriptList.fulfilled.match(action)) {
         // 在脚本列表加载完成后，加载favicon
-        loadScriptFavicons(action.payload);
+        // loadScriptFavicons(action.payload);
       }
     });
   }, [dispatch]);
