@@ -1,6 +1,12 @@
 // types
 
-export type ScriptFunc = (context: any, GM_info: any) => any;
+export type ScriptFuncVar = {
+  [key: string]: any;
+  context: { [key: string]: any };
+  protect: { [key: string]: any };
+}
+
+export type ScriptFunc = (GM: ScriptFuncVar) => any;
 
 // exec_script.ts
 
@@ -21,10 +27,12 @@ export type ValueUpdateData = {
 // gm_api.ts
 
 export interface ApiParam {
+  follow?: string;
   depend?: string[];
 }
 
 export interface ApiValue {
+  fnKey: string;
   api: any;
   param: ApiParam;
 }

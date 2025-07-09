@@ -19,12 +19,12 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   }
   const sourceURL = `//# sourceURL=${chrome.runtime.getURL(`/${encodeURI(scriptRes.name)}.user.js`)}`;
   const code = [requireCode, scriptCode, sourceURL].join("\n");
-  // 处理name中的特殊符号
-  const name = scriptRes.name.replace(/["]/g, "\\$1");
-  return `  with(context){
-      return ((factory) => {
+  const name = scriptRes.name.replace(/['"]/g, "\\$1");
+  return `  with(GM.context){
+    with(protect){
+      return (function(){
           try {
-            return factory.apply(context, []);
+            return arguments[0].apply(null, []);
           } catch (e) {
             if (e.message && e.stack) {
                 console.error("ERROR: Execution of script '${name}' failed! " + e.message);
@@ -37,12 +37,13 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
       })(async function(){
           ${code}
       })
+    }
   }`;
 }
 
 // 通过脚本代码编译脚本函数
 export function compileScript(code: string): ScriptFunc {
-  return <ScriptFunc>new Function("context", "GM_info", code);
+  return <ScriptFunc>new Function("GM", code);
 }
 /**
  * 将脚本函数编译为注入脚本代码
