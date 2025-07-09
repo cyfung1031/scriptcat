@@ -91,15 +91,17 @@ function ScriptList() {
   const scriptList = useAppSelector(selectScripts);
   const inputRef = useRef<RefInputType>(null);
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const openUserConfig = useSearchParams()[0].get("userConfig") || "";
   const [showAction, setShowAction] = useState(false);
   const [action, setAction] = useState("");
   const [select, setSelect] = useState<Script[]>([]);
   const [selectColumn, setSelectColumn] = useState(0);
-  const { t } = useTranslation();
   const [components, setComponents] = useState<ComponentsProps | undefined>(undefined);
   const [dealColumns, setDealColumns] = useState<ColumnProps[]>([]);
   const [newColumns, setNewColumns] = useState<ColumnProps[]>([]);
+
+  const sortableItems = useMemo(() => scriptList.map((s) => s.uuid), [scriptList]);
 
   useEffect(() => {
     dispatch(fetchScriptList()).then((action) => {
@@ -128,10 +130,10 @@ function ScriptList() {
     }
     systemConfig.getScriptListColumnWidth().then((columnWidth) => {
       setNewColumns(
-        columns.map((item) => {
-          item.width = columnWidth[item.key!] ?? item.width;
-          return item;
-        })
+        columns.map((item) => ({
+          ...item,
+          width: Number.isNaN(columnWidth[item.key!]) ? item.width : columnWidth[item.key!],
+        }))
       );
     });
   }, [openUserConfig]);
@@ -144,179 +146,204 @@ function ScriptList() {
     })
   );
 
-  const EnableSwitch = React.memo(({ item }: { item: ScriptLoading }) => (
-    <Switch
-      checked={item.status === SCRIPT_STATUS_ENABLE}
-      loading={item.enableLoading}
-      disabled={item.enableLoading}
-      onChange={(checked) => {
-        dispatch(requestEnableScript({ uuid: item.uuid, enable: checked }));
-      }}
-    />
-  ));
-  EnableSwitch.displayName = 'EnableSwitch';
+  const handleEnableToggle = useCallback(
+    (uuid: string, enable: boolean) => {
+      dispatch(requestEnableScript({ uuid, enable }));
+    },
+    [dispatch]
+  );
 
-  const ScriptName = React.memo(({ item }: { item: ScriptLoading }) => (
-    <Tooltip content={item.name} position="tl">
-      <Link to={`/script/editor/${item.uuid}`} style={{ textDecoration: "none" }}>
-        <Text
-          style={{
-            display: "block",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            lineHeight: "20px",
-          }}
-        >
-          <ScriptIcons script={item} size={20} />
-          {i18nName(item)}
-        </Text>
-      </Link>
-    </Tooltip>
-  ));
-  ScriptName.displayName = 'ScriptName';
+  const EnableSwitch = React.memo(
+    ({ item }: { item: ScriptLoading }) => (
+      <Switch
+        checked={item.status === SCRIPT_STATUS_ENABLE}
+        loading={item.enableLoading}
+        disabled={item.enableLoading}
+        onChange={(checked) => handleEnableToggle(item.uuid, checked)}
+      />
+    ),
+    (prev, next) => prev.item.status === next.item.status && prev.item.enableLoading === next.item.enableLoading && prev.item.uuid === next.item.uuid
+  );
+  EnableSwitch.displayName = "EnableSwitch";
 
-  const ApplyToRunStatus = React.memo(({ item }: { item: ScriptLoading }) => {
-    const { t } = useTranslation();
-    const navigate = useNavigate();
-
-    const toLogger = useCallback(() => {
-      navigate({
-        pathname: "logger",
-        search: `query=${encodeURIComponent(
-          JSON.stringify([
-            { key: "uuid", value: item.uuid },
-            { key: "component", value: "GM_log" },
-          ])
-        )}`,
-      });
-    }, [navigate, item.uuid]);
-    ApplyToRunStatus.displayName = 'ApplyToRunStatus';
-
-    const favoriteAvatars = useMemo(() => {
-      if (!item.favorite) return null;
-      // 排序并且只显示前5个
-      // 排序将有icon的放在前面
-      const sorted = [...item.favorite].sort((a, b) => {
-        if (a.icon && !b.icon) return -1;
-        if (!a.icon && b.icon) return 1;
-        return a.match.localeCompare(b.match);
-      });
-      const sliced = sorted.slice(0, 4);
-      return sliced.map((fav) => (
-        <Avatar
-          key={fav.match}
-          shape="square"
-          style={{ backgroundColor: "unset", borderWidth: 1 }}
-          className={fav.website ? "cursor-pointer" : "cursor-default"}
-          onClick={() => {
-            if (fav.website) {
-              window.open(fav.website, "_blank");
-            }
-          }}
-        >
-          {fav.icon ? <img title={fav.match} src={fav.icon} /> : <TbWorldWww title={fav.match} color="#aaa" size={24} />}
-        </Avatar>
-      ));
-    }, [item.favorite]);
-
-    if (item.type === SCRIPT_TYPE_NORMAL) {
-      return (
-        <Avatar.Group size={20}>
-          {favoriteAvatars}
-          {item.favorite && item.favorite.length > 4 && "..."}
-        </Avatar.Group>
-      );
-    }
-
-    let tooltip = "";
-    if (item.type === SCRIPT_TYPE_BACKGROUND) {
-      tooltip = t("background_script_tooltip");
-    } else {
-      tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
-    }
-
-    return (
-      <Tooltip content={tooltip}>
-        <Tag
-          icon={<IconClockCircle />}
-          color="blue"
-          bordered
-          style={{ cursor: "pointer" }}
-          onClick={toLogger}
-        >
-          {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
-        </Tag>
-      </Tooltip>
-    );
-  });
-
-  const ScriptActions = React.memo(({ item }: { item: ScriptLoading }) => {
-    const dispatch = useAppDispatch();
-    const { t } = useTranslation();
-
-    const handleDelete = useCallback(() => {
-      dispatch(requestDeleteScript(item.uuid));
-    }, [dispatch, item.uuid]);
-
-    const handleConfig = useCallback(() => {
-      new ValueClient(message).getScriptValue(item).then((newValues) => {
-        setUserConfig({
-          userConfig: { ...item.config! },
-          script: item,
-          values: newValues,
-        });
-      });
-    }, [item]);
-    ScriptActions.displayName = 'ScriptActions';
-
-    const handleRunStop = useCallback(async () => {
-      if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
-        Message.loading({ id: "script-stop", content: t("stopping_script") });
-        await dispatch(requestStopScript(item.uuid));
-        Message.success({ id: "script-stop", content: t("script_stopped"), duration: 3000 });
-      } else {
-        Message.loading({ id: "script-run", content: t("starting_script") });
-        await dispatch(requestRunScript(item.uuid));
-        Message.success({ id: "script-run", content: t("script_started"), duration: 3000 });
-      }
-    }, [dispatch, item.uuid, item.runStatus, t]);
-
-    const handleCloud = useCallback(() => {
-      setCloudScript(item);
-    }, [item]);
-
-    return (
-      <Button.Group>
-        <Link to={`/script/editor/${item.uuid}`}>
-          <Button type="text" icon={<RiPencilFill />} style={{ color: "var(--color-text-2)" }} />
+  const ScriptName = React.memo(
+    ({ item }: { item: ScriptLoading }) => (
+      <Tooltip content={item.name} position="tl">
+        <Link to={`/script/editor/${item.uuid}`} style={{ textDecoration: "none" }}>
+          <Text
+            style={{
+              display: "block",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              lineHeight: "20px",
+            }}
+          >
+            <ScriptIcons script={item} size={20} />
+            {i18nName(item)}
+          </Text>
         </Link>
-        <Popconfirm title={t("confirm_delete_script")} icon={<RiDeleteBin5Fill />} onOk={handleDelete}>
-          <Button
-            type="text"
-            icon={<RiDeleteBin5Fill />}
-            loading={item.actionLoading}
-            style={{ color: "var(--color-text-2)" }}
-          />
-        </Popconfirm>
-        {item.config && (
-          <Button type="text" icon={<RiSettings3Fill />} onClick={handleConfig} style={{ color: "var(--color-text-2)" }} />
-        )}
-        {item.type !== SCRIPT_TYPE_NORMAL && (
-          <Button
-            type="text"
-            icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
-            loading={item.actionLoading}
-            onClick={handleRunStop}
-            style={{ color: "var(--color-text-2)" }}
-          />
-        )}
-        {item.metadata.cloudcat && (
-          <Button type="text" icon={<RiUploadCloudFill />} onClick={handleCloud} style={{ color: "var(--color-text-2)" }} />
-        )}
-      </Button.Group>
-    );
-  });
+      </Tooltip>
+    ),
+    (prev, next) => prev.item.name === next.item.name && prev.item.uuid === next.item.uuid
+  );
+  ScriptName.displayName = "ScriptName";
+
+  const ApplyToRunStatus = React.memo(
+    ({ item, t, navigate }: { item: ScriptLoading; t: (key: string) => string; navigate: (options: any) => void }) => {
+      const toLogger = useCallback(() => {
+        navigate({
+          pathname: "logger",
+          search: `query=${encodeURIComponent(
+            JSON.stringify([
+              { key: "uuid", value: item.uuid },
+              { key: "component", value: "GM_log" },
+            ])
+          )}`,
+        });
+      }, [navigate, item.uuid]);
+
+      const favoriteAvatars = useMemo(() => {
+        if (!item.favorite) return null;
+        // 排序并且只显示前5个
+        // 排序将有icon的放在前面
+        const sorted = [...item.favorite].sort((a, b) => {
+          if (a.icon && !b.icon) return -1;
+          if (!a.icon && b.icon) return 1;
+          return a.match.localeCompare(b.match);
+        });
+        const sliced = sorted.slice(0, 4);
+        return sliced.map((fav) => (
+          <Avatar
+            key={fav.match}
+            shape="square"
+            style={{ backgroundColor: "unset", borderWidth: 1 }}
+            className={fav.website ? "cursor-pointer" : "cursor-default"}
+            onClick={() => {
+              if (fav.website) {
+                window.open(fav.website, "_blank");
+              }
+            }}
+          >
+            {fav.icon ? <img title={fav.match} src={fav.icon} /> : <TbWorldWww title={fav.match} color="#aaa" size={24} />}
+          </Avatar>
+        ));
+      }, [item.favorite]);
+
+      if (item.type === SCRIPT_TYPE_NORMAL) {
+        return (
+          <Avatar.Group size={20}>
+            {favoriteAvatars}
+            {item.favorite && item.favorite.length > 4 && "..."}
+          </Avatar.Group>
+        );
+      }
+
+      let tooltip = "";
+      if (item.type === SCRIPT_TYPE_BACKGROUND) {
+        tooltip = t("background_script_tooltip");
+      } else {
+        tooltip = `${t("scheduled_script_tooltip")} ${nextTime(item.metadata!.crontab![0])}`;
+      }
+
+      return (
+        <Tooltip content={tooltip}>
+          <Tag
+            icon={<IconClockCircle />}
+            color="blue"
+            bordered
+            style={{ cursor: "pointer" }}
+            onClick={toLogger}
+          >
+            {item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? t("running") : t("completed")}
+          </Tag>
+        </Tooltip>
+      );
+    },
+    (prev, next) =>
+      prev.item.uuid === next.item.uuid &&
+      prev.item.type === next.item.type &&
+      prev.item.runStatus === next.item.runStatus &&
+      prev.item.favorite === next.item.favorite &&
+      prev.item.metadata === next.item.metadata &&
+      prev.t === next.t &&
+      prev.navigate === next.navigate
+  );
+  ApplyToRunStatus.displayName = "ApplyToRunStatus";
+
+  const ScriptActions = React.memo(
+    ({ item, t }: { item: ScriptLoading; t: (key: string) => string }) => {
+      const handleDelete = useCallback(() => {
+        dispatch(requestDeleteScript(item.uuid));
+      }, [item.uuid]);
+
+      const handleConfig = useCallback(() => {
+        new ValueClient(message).getScriptValue(item).then((newValues) => {
+          setUserConfig({
+            userConfig: { ...item.config! },
+            script: item,
+            values: newValues,
+          });
+        });
+      }, [item]);
+
+      const handleRunStop = useCallback(async () => {
+        if (item.runStatus === SCRIPT_RUN_STATUS_RUNNING) {
+          Message.loading({ id: "script-stop", content: t("stopping_script") });
+          await dispatch(requestStopScript(item.uuid));
+          Message.success({ id: "script-stop", content: t("script_stopped"), duration: 3000 });
+        } else {
+          Message.loading({ id: "script-run", content: t("starting_script") });
+          await dispatch(requestRunScript(item.uuid));
+          Message.success({ id: "script-run", content: t("script_started"), duration: 3000 });
+        }
+      }, [item.uuid, item.runStatus, t]);
+
+      const handleCloud = useCallback(() => {
+        setCloudScript(item);
+      }, [item]);
+
+      return (
+        <Button.Group>
+          <Link to={`/script/editor/${item.uuid}`}>
+            <Button type="text" icon={<RiPencilFill />} style={{ color: "var(--color-text-2)" }} />
+          </Link>
+          <Popconfirm title={t("confirm_delete_script")} icon={<RiDeleteBin5Fill />} onOk={handleDelete}>
+            <Button
+              type="text"
+              icon={<RiDeleteBin5Fill />}
+              loading={item.actionLoading}
+              style={{ color: "var(--color-text-2)" }}
+            />
+          </Popconfirm>
+          {item.config && (
+            <Button type="text" icon={<RiSettings3Fill />} onClick={handleConfig} style={{ color: "var(--color-text-2)" }} />
+          )}
+          {item.type !== SCRIPT_TYPE_NORMAL && (
+            <Button
+              type="text"
+              icon={item.runStatus === SCRIPT_RUN_STATUS_RUNNING ? <RiStopFill /> : <RiPlayFill />}
+              loading={item.actionLoading}
+              onClick={handleRunStop}
+              style={{ color: "var(--color-text-2)" }}
+            />
+          )}
+          {item.metadata.cloudcat && (
+            <Button type="text" icon={<RiUploadCloudFill />} onClick={handleCloud} style={{ color: "var(--color-text-2)" }} />
+          )}
+        </Button.Group>
+      );
+    },
+    (prev, next) =>
+      prev.item.uuid === next.item.uuid &&
+      prev.item.config === next.item.config &&
+      prev.item.type === next.item.type &&
+      prev.item.runStatus === next.item.runStatus &&
+      prev.item.actionLoading === next.item.actionLoading &&
+      prev.item.metadata === next.item.metadata &&
+      prev.t === next.t
+  );
+  ScriptActions.displayName = "ScriptActions";
 
   const columns: ColumnProps[] = useMemo(
     () => [
@@ -418,7 +445,7 @@ function ScriptList() {
         title: t("apply_to_run_status"),
         width: t("script_list_apply_to_run_status_width"),
         className: "apply_to_run_status",
-        render: (col, item: ListType) => <ApplyToRunStatus item={item} />,
+        render: (col, item: ListType) => <ApplyToRunStatus item={item} t={t} navigate={navigate} />,
       },
       {
         title: t("source"),
@@ -540,13 +567,11 @@ function ScriptList() {
         dataIndex: "action",
         key: "action",
         width: 160,
-        render: (col, item: ScriptLoading) => <ScriptActions item={item} />,
+        render: (col, item: ScriptLoading) => <ScriptActions item={item} t={t} />,
       },
     ],
-    [t, dispatch, inputRef, navigate]
+    [t, navigate, handleEnableToggle]
   );
-
-  const sortableItems = useMemo(() => scriptList.map((s) => s.uuid), [scriptList]);
 
   useEffect(() => {
     if (!newColumns.length) return;
@@ -603,6 +628,8 @@ function ScriptList() {
     setComponents(components);
     setDealColumns(dealColumns);
   }, [newColumns, sensors, sortableItems, dispatch]);
+
+  if (!newColumns.length) return null;
 
   return (
     <Card id="script-list" className="script-list" style={{ height: "100%", overflowY: "auto" }}>
@@ -845,6 +872,9 @@ function ScriptList() {
           tableLayoutFixed
           columns={dealColumns.length ? dealColumns : columns}
           data={scriptList}
+          // virtualized
+          // rowHeight={48}
+          // scroll={{ y: "calc(100vh - 240px)" }}
           pagination={{
             total: scriptList.length,
             pageSize: scriptList.length,
