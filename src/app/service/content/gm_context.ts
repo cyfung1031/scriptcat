@@ -18,6 +18,7 @@ export default class GMContext {
 
   public static protected(value: any = undefined) {
     return (target: any, propertyName: string) => {
+      // keyword是与createContext时同步的,避免访问到context的内部变量
       protect[propertyName] = value;
     };
   }

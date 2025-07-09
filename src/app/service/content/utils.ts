@@ -2,6 +2,7 @@ import type { ScriptRunResource } from "@App/app/repo/scripts";
 
 import { has } from "@App/pkg/utils/lodash";
 import type { ScriptFunc } from "./types";
+import { protect } from "./gm_context";
 
 // 构建脚本运行代码
 export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: string): string {
@@ -20,19 +21,17 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   const sourceURL = `//# sourceURL=${chrome.runtime.getURL(`/${encodeURI(scriptRes.name)}.user.js`)}`;
   const preCode = [requireCode].join("\n");
   const code = [scriptCode, sourceURL].join("\n");
-  const name = scriptRes.name.replace(/['"]/g, "\\$1");
   return `try {
-  with(context){
-    with(protect){
-      ${preCode}
-      [(async function(){
-        ${code}
-      })()];
-    }
-  }
+with(arguments[0]){
+${preCode}
+[(async function(){
+${code}
+})()];
+}
 } catch (e) {
   if (e.message && e.stack) {
-      console.error("ERROR: Execution of script '${name}' failed! " + e.message);
+      const n = arguments[1];
+      console.error("ERROR: Execution of script '" + n + "' failed! " + e.message);
       console.log(e.stack);
   } else {
       console.error(e);
@@ -40,12 +39,9 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
 }`;
 }
 
-const param1 = "context";
-const param2 = "protect";
-
 // 通过脚本代码编译脚本函数
 export function compileScript(code: string): ScriptFunc {
-  return <ScriptFunc>new Function(param1, param2, code);
+  return <ScriptFunc>new Function(code);
 }
 /**
  * 将脚本函数编译为注入脚本代码
@@ -59,7 +55,7 @@ export function compileInjectScript(
   autoDeleteMountFunction: boolean = false
 ): string {
   scriptCode = scriptCode ?? script.code;
-  return `window['${script.flag}'] = function(${param1}, ${param2}){
+  return `window['${script.flag}'] = function(){
 ${autoDeleteMountFunction ? `  try{delete window['${script.flag}'];}catch(e){};` : ""}${scriptCode}}`;
 }
 
@@ -117,8 +113,10 @@ export function warpObject(thisContext: object, ...context: object[]) {
   };
 }
 
+
+
 // 拦截上下文
-export function proxyContext(global: any, context: any, thisContext?: { [key: string]: any }) {
+export function proxyContext<Context extends { [key: string]: any }>(global: Context, context: any, thisContext?: { [key: string]: any }): Context {
   const special = Object.assign(writables);
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
@@ -128,16 +126,6 @@ export function proxyContext(global: any, context: any, thisContext?: { [key: st
   thisContext.eval = global.eval;
   thisContext.define = undefined;
   warpObject(thisContext, special, global, context);
-  // keyword是与createContext时同步的,避免访问到context的内部变量
-  const contextKeyword: { [key: string]: any } = {
-    message: 1,
-    valueChangeListener: 1,
-    connect: 1,
-    runFlag: 1,
-    valueUpdate: 1,
-    sendMessage: 1,
-    scriptRes: 1,
-  };
   // @ts-ignore
   const proxy = new Proxy(context, {
     defineProperty(_, name, desc) {
@@ -172,7 +160,7 @@ export function proxyContext(global: any, context: any, thisContext?: { [key: st
         }
         if (typeof name === "string") {
           if (has(context, name)) {
-            if (has(contextKeyword, name)) {
+            if (has(protect, name)) {
               return undefined;
             }
             return context[name];
@@ -229,7 +217,7 @@ export function proxyContext(global: any, context: any, thisContext?: { [key: st
             return true;
           }
           if (has(context, name)) {
-            if (has(contextKeyword, name)) {
+            if (has(protect, name)) {
               return false;
             }
             return true;
