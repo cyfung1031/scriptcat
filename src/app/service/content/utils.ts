@@ -1,10 +1,27 @@
 import type { ScriptRunResource } from "@App/app/repo/scripts";
 
-import { has } from "@App/pkg/utils/lodash";
 import type { ScriptFunc } from "./types";
 import { protect } from "./gm_context";
 
+// undefined 和 null 以外，使用 hasOwnProperty 检查
+// 不使用 != 避免类型转换比较
+const has = (object: any, key: any) => {
+  switch (object) {
+    case undefined:
+    case null:
+      return false;
+    default:
+      return Object.prototype.hasOwnProperty.call(object, key);
+  }
+}
+
 // 构建脚本运行代码
+/**
+ * @see {@link ExecScript}
+ * @param scriptRes 
+ * @param scriptCode 
+ * @returns 
+ */
 export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: string): string {
   scriptCode = scriptCode ?? scriptRes.code;
   let requireCode = "";
@@ -19,16 +36,11 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
       .join("\n");
   }
   const sourceURL = `//# sourceURL=${chrome.runtime.getURL(`/${encodeURI(scriptRes.name)}.user.js`)}`;
-  const preCode = [requireCode].join("\n");
-  const code = [scriptCode, sourceURL].join("\n");
-  return `try {
-with(arguments[0]){
-${preCode}
-[(async function(){
-${code}
-})()];
-}
-} catch (e) {
+  const preCode = [requireCode].join("\n"); // 不需要 async 封装
+  const code = [scriptCode, sourceURL].join("\n"); // 需要 async 封裝
+  // context 和 name 以unnamed arguments方式导入。避免代码能直接以变量名存取
+  // arguments = [context: globalThis, scriptName: string, errorHandling: function]
+  const onErrorCode = `arguments[2] = (e) => {
   if (e.message && e.stack) {
       const n = arguments[1];
       console.error("ERROR: Execution of script '" + n + "' failed! " + e.message);
@@ -36,6 +48,17 @@ ${code}
   } else {
       console.error(e);
   }
+};`
+  return `${onErrorCode}
+try {
+  with(arguments[0]){
+    ${preCode}
+    [((async function(){
+    ${code}
+    })().catch(arguments[2]),0)];
+  }
+} catch (e) {
+  arguments[2](e);
 }`;
 }
 
@@ -55,8 +78,8 @@ export function compileInjectScript(
   autoDeleteMountFunction: boolean = false
 ): string {
   scriptCode = scriptCode ?? script.code;
-  return `window['${script.flag}'] = function(){
-${autoDeleteMountFunction ? `  try{delete window['${script.flag}'];}catch(e){};` : ""}${scriptCode}}`;
+  const autoDeleteMountCode = autoDeleteMountFunction ? `try{delete window['${script.flag}']}catch(e){}` : "";
+  return `window['${script.flag}'] = function(){${autoDeleteMountCode}${scriptCode}}`;
 }
 
 export const writables: { [key: string]: any } = {
@@ -113,26 +136,30 @@ export function warpObject(thisContext: object, ...context: object[]) {
   };
 }
 
-
+type GMWorldContext = ((typeof globalThis) & ({
+  [key: string | number | symbol]: any;
+}) | ({
+  [key: string | number | symbol]: any;
+}));
 
 // 拦截上下文
-export function proxyContext<Context extends { [key: string]: any }>(global: Context, context: any, thisContext?: { [key: string]: any }): Context {
+export function proxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
   const special = Object.assign(writables);
+  const thisContext: Context = <Context>{};
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
-  if (!thisContext) {
-    thisContext = {};
-  }
   thisContext.eval = global.eval;
-  thisContext.define = undefined;
-  warpObject(thisContext, special, global, context);
+  // thisContext.define = undefined;
+  warpObject(thisContext, special, global);
+  // 把 GM Api 复製到 thisContext
+  for (const key of Object.keys(context)) {
+    if (key in protect) continue;
+    thisContext[key] = context[key];
+  }
   // @ts-ignore
-  const proxy = new Proxy(context, {
-    defineProperty(_, name, desc) {
-      if (Object.defineProperty(thisContext, name, desc)) {
-        return true;
-      }
-      return false;
+  const proxy = new Proxy(thisContext, {
+    defineProperty(target, name, desc) {
+      return Reflect.defineProperty(target, name, desc);
     },
     get(_, name): any {
       switch (name) {
@@ -201,39 +228,33 @@ export function proxyContext<Context extends { [key: string]: any }>(global: Con
           return true;
         case "top":
         case "parent":
-          if (global[name] === global.self) {
-            return true;
-          }
+          // if (global[name] === global.self) {
+          //   return true;
+          // }
           return true;
+        case "undefined":
+          return false;
         default:
           break;
       }
-      if (name !== "undefined") {
-        if (typeof name === "string") {
-          if (has(unscopables, name)) {
-            return false;
-          }
-          if (has(thisContext, name)) {
-            return true;
-          }
-          if (has(context, name)) {
-            if (has(protect, name)) {
-              return false;
-            }
-            return true;
-          }
-          if (has(special, name)) {
-            return true;
-          }
-          // 只处理onxxxx的事件
-          if (has(global, name)) {
-            if (name.startsWith("on")) {
-              return true;
-            }
-          }
-        } else if (typeof name === "symbol") {
-          return has(thisContext, name);
+      if (typeof name === "string") {
+        if (has(unscopables, name)) {
+          return false;
         }
+        if (has(thisContext, name)) {
+          return true;
+        }
+        if (has(special, name)) {
+          return true;
+        }
+        // 只处理onxxxx的事件
+        if (has(global, name)) {
+          if (name.startsWith("on")) {
+            return true;
+          }
+        }
+      } else if (typeof name === "symbol") {
+        return has(thisContext, name);
       }
       return false;
     },
@@ -257,13 +278,14 @@ export function proxyContext<Context extends { [key: string]: any }>(global: Con
         }
         // 只处理onxxxx的事件
         if (has(global, name) && name.startsWith("on")) {
+          const eventName = name.slice(2);
           if (val === undefined) {
-            global.removeEventListener(name.slice(2), thisContext[name]);
+            global.removeEventListener(eventName, thisContext[name]);
           } else {
             if (thisContext[name]) {
-              global.removeEventListener(name.slice(2), thisContext[name]);
+              global.removeEventListener(eventName, thisContext[name]);
             }
-            global.addEventListener(name.slice(2), val);
+            global.addEventListener(eventName, val);
           }
           thisContext[name] = val;
           return true;

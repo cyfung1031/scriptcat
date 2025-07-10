@@ -11,6 +11,7 @@ import type { MessageRequest } from "../service_worker/types";
 import { connect, sendMessage } from "@Packages/message/client";
 import { getStorageName } from "@App/pkg/utils/utils";
 
+// 内部函数呼叫定义
 export interface IGM_Base {
   sendMessage(api: string, params: any[]): Promise<any>;
   connect(api: string, params: any[]): Promise<any>;
@@ -18,7 +19,7 @@ export interface IGM_Base {
   emitEvent(event: string, eventId: string, data: any): void;
 }
 
-const integrity = {};
+const integrity = {}; // 僅防止非法实例化
 
 const GM_cookie = (
   a: IGM_Base,
@@ -230,6 +231,7 @@ const GM_xmlhttpRequest = function (a: GMApi, details: GMTypes.XHRDetails) {
     };
 }
 
+// GM_Base 定义内部用变量和函数。均使用@protected
 export class GM_Base implements IGM_Base {
 
   @GMContext.protected()
@@ -250,8 +252,8 @@ export class GM_Base implements IGM_Base {
   @GMContext.protected()
   protected EE!: EventEmitter;
 
-  @GMContext.protected()
-  protected protect!: any;
+  // @GMContext.protected()
+  // protected protect!: any;
 
   @GMContext.protected()
   public __methodInject__!: any;
@@ -264,6 +266,9 @@ export class GM_Base implements IGM_Base {
 
   @GMContext.protected()
   public eventId!: number;
+
+  @GMContext.protected()
+  public integrity!: any;
 
   constructor(
     options: any = null
@@ -350,6 +355,7 @@ const GM_setValue = (a: GMApi, key: string, value: any) => {
   }
 }
 
+// GMApi 定义 外部用API函数。不使用@protected
 export default class GMApi extends GM_Base {
   /**
    * <tag, notificationId>

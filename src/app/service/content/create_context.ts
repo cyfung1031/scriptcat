@@ -26,8 +26,8 @@ export function createContext(scriptRes: ScriptRunResource, GMInfo: any, envPref
     __methodInject__(grant: string): boolean {
       const grantSet = this.grantSet || (this.grantSet = new Set());
       const s = GMContextApiGet(grant);
-      if (!s) return false;
-      if (grantSet.has(grant)) return true;
+      if (!s) return false; // @grant 的定义未实作，略过 (返回 false 表示 @grant 不存在)
+      if (grantSet.has(grant)) return true; // 重覆的@grant，略过 (返回 true 表示 @grant 存在)
       grantSet.add(grant);
       for (const t of s) {
         const fnKeyArray = t.fnKey.split('.');
