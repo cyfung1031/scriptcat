@@ -40,25 +40,31 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   const code = [scriptCode, sourceURL].join("\n"); // 需要 async 封裝
   // context 和 name 以unnamed arguments方式导入。避免代码能直接以变量名存取
   // arguments = [context: globalThis, scriptName: string, errorHandling: function]
-  const onErrorCode = `arguments[2] = (e) => {
-  if (e.message && e.stack) {
-      const n = arguments[1];
-      console.error("ERROR: Execution of script '" + n + "' failed! " + e.message);
-      console.log(e.stack);
-  } else {
-      console.error(e);
-  }
-};`
-  return `${onErrorCode}
-try {
-  with(arguments[0]){
-    ${preCode}
-    [((async function(){
-    ${code}
-    })().catch(arguments[2]),0)];
-  }
-} catch (e) {
-  arguments[2](e);
+//   const onErrorCode = `arguments[2] = (e) => {
+//   if (e.message && e.stack) {
+//       const n = arguments[1];
+//       console.error("ERROR: Execution of script '" + n + "' failed! " + e.message);
+//       console.log(e.stack);
+//   } else {
+//       console.error(e);
+//   }
+// };`
+//   return `${onErrorCode}
+// try {
+//   with(arguments[0]){
+//     ${preCode}
+//     [((async function(){
+//     ${code}
+//     })().catch(arguments[2]),0)];
+//   }
+// } catch (e) {
+//   arguments[2](e);
+// }`;
+  return `with(arguments[0]){
+${preCode}
+[((async function(){
+${code}
+})(),0)];
 }`;
 }
 
