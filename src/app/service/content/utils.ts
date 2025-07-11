@@ -307,14 +307,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   exposedWindowProxy = new Proxy(exposedWindow,exposedWindowProxyHandler);
 
-  withContext = new Proxy(<Context>exposedWindow, {
-    get(_, name){
-      if(name === 'window' || name ==='self' || name==='globalThis') return exposedWindowProxy;
-      return Reflect.get(exposedWindow, name, exposedWindowProxyHandler);
-    },
-    set(_, name){
-      return Reflect.set(exposedWindow, name, exposedWindowProxyHandler);
-    },
+  withContext = new Proxy(<Context>exposedWindowProxy, {
     has(_, name) {
       return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
     }
