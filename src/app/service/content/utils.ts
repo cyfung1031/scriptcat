@@ -5,7 +5,11 @@ import { protect } from "./gm_context";
 
 // undefined 和 null 以外，使用 hasOwnProperty 检查
 // 不使用 != 避免类型转换比较
-const has = (object: any, key: any) => {
+
+// @ts-ignore: Object is possibly 'undefined'.
+
+// @ts-ignore
+const hasOwn = Object.hasOwn || ((object: any, key: any) => {
   switch (object) {
     case undefined:
     case null:
@@ -13,7 +17,7 @@ const has = (object: any, key: any) => {
     default:
       return Object.prototype.hasOwnProperty.call(object, key);
   }
-}
+});
 
 // 构建脚本运行代码
 /**
@@ -79,14 +83,23 @@ export function compileInjectScript(
   return `window['${script.flag}'] = function(){${autoDeleteMountCode}${scriptCode}}`;
 }
 
-export const writables: { [key: string]: any } = {
-  addEventListener: global.addEventListener.bind(global),
-  removeEventListener: global.removeEventListener.bind(global),
-  dispatchEvent: global.dispatchEvent.bind(global),
+type ForEachCallback<T> = (value: T, index: number, array: T[]) => void;
+
+const getAllPropertyDescriptors = (
+  obj: any,
+  callback: ForEachCallback<[string | symbol, TypedPropertyDescriptor<any> & PropertyDescriptor]>
+) => {
+  while (obj && obj !== Object) {
+    const descs = Object.getOwnPropertyDescriptors(obj);
+    Object.entries(descs).forEach(callback);
+    obj = Object.getPrototypeOf(obj);
+  }
 };
 
+export const writables: { [key: string]: any } = {};
+
 // 记录初始的window字段
-export const init = new Map<string, boolean>();
+export const init = new Map<string | symbol, number>();
 
 // 需要用到全局的
 export const unscopables: { [key: string]: boolean } = {
@@ -94,219 +107,199 @@ export const unscopables: { [key: string]: boolean } = {
   RegExp: true,
 };
 
-// 复制原有的,防止被前端网页复写
-const descs = Object.getOwnPropertyDescriptors(global);
-Object.keys(descs).forEach((key) => {
-  const desc = descs[key];
-  // 可写但不在特殊配置writables中
-  if (desc && desc.writable && !writables[key]) {
-    if (typeof desc.value === "function") {
-      // 判断是否需要bind，例如Object、Function这些就不需要bind
-      if (desc.value.prototype) {
-        writables[key] = desc.value;
-      } else {
-        writables[key] = desc.value.bind(global);
-      }
-    } else {
-      writables[key] = desc.value;
-    }
-  } else {
-    init.set(key, true);
-  }
-});
+const descsCache = new Set();
 
-export function warpObject(exposedObject: object, ...context: object[]) {
+// 复制原有的,防止被前端网页复写
+getAllPropertyDescriptors(global, ([key, desc]) => {
+  if (!desc || descsCache.has(key) || typeof key !== 'string') return;
+  descsCache.add(key);
+
+  // 可写但不在特殊配置writables中
+  if (desc.writable) {
+    // value
+    let needBind = false;
+    const value = desc.value;
+    // 判断是否需要bind，例如Object、Function这些就不需要bind (callable function only)
+    if (typeof value === "function" && !value.prototype) {
+      needBind = true;
+    }
+    writables[key] = needBind ? value.bind(global) : value;
+  } else {
+    // read-only property (configurable getter)
+    if (desc.get && !desc.set && desc.configurable) {
+      init.set(key, 1 | 4);
+    }
+    // setter getter
+    else if (desc.enumerable && desc.configurable && desc.get && desc.set && key.startsWith('on')) {
+      init.set(key, 1 | 2);
+    } else {
+      init.set(key, 1);
+    }
+  }
+
+});
+descsCache.clear();
+
+export function warpObject(exposedObject: object, context: object) {
   // 处理Object上的方法
   exposedObject.hasOwnProperty = (name: PropertyKey) => {
     return (
-      Object.hasOwnProperty.call(exposedObject, name) || context.some((val) => Object.hasOwnProperty.call(val, name))
+      Object.hasOwnProperty.call(exposedObject, name) || Object.hasOwnProperty.call(context, name)
     );
   };
   exposedObject.isPrototypeOf = (name: object) => {
-    return Object.isPrototypeOf.call(exposedObject, name) || context.some((val) => Object.isPrototypeOf.call(val, name));
+    return Object.isPrototypeOf.call(exposedObject, name) || Object.isPrototypeOf.call(context, name);
   };
   exposedObject.propertyIsEnumerable = (name: PropertyKey) => {
     return (
-      Object.propertyIsEnumerable.call(exposedObject, name) ||
-      context.some((val) => Object.propertyIsEnumerable.call(val, name))
+      Object.propertyIsEnumerable.call(exposedObject, name) || Object.propertyIsEnumerable.call(context, name)
     );
   };
 }
 
 type GMWorldContext = ((typeof globalThis) & ({
   [key: string | number | symbol]: any;
+  window: any;
+  self: any;
+  globalThis: any;
 }) | ({
   [key: string | number | symbol]: any;
 }));
 
+const isEventListener = (x:any)=> (typeof x === 'function' || typeof x === 'object' && x?.handleEvent);
+
 // 拦截上下文
 export function createProxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
-  const special = Object.assign(writables);
-  const exposedObject: Context = <Context>{};
+  let exposedProxy: Context | undefined = undefined;
+  // 為避免做成混亂。 ScriptCat腳本中 self, globalThis, parent 為固定值不能修改
+  const exposedObject: Context = <Context>{
+    get window() { return exposedProxy },
+    set window(_) {},
+    get self() { return exposedProxy }, // cannot change
+    set self(_) {},
+    get globalThis() { return exposedProxy }, // cannot change
+    set globalThis(_) {},
+    get top() {
+      if (global.top === global.self) return exposedProxy;
+      return global.top;
+    },
+    set top(_) {},
+    get parent() { // cannot change
+      if (global.parent === global.self) return exposedProxy;
+      return global.parent;
+    },
+    set parent(_) {},
+    get undefined(){
+      return undefined;
+    },
+    set undefined(_) {},
+    ...writables // addEventListener, setTimeout, etc
+  };
+  exposedObject[Symbol.unscopables] = unscopables;
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
   exposedObject.eval = global.eval;
   // exposedObject.define = undefined;
-  warpObject(exposedObject, special, global);
+  warpObject(exposedObject, global);
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
-    if (key in protect) continue;
-    exposedObject[key] = context[key];
+    if (key in protect || key === 'window') continue;
+    exposedObject[key] = context[key]; // window以外
   }
-  // @ts-ignore
-  const exposedProxy = new Proxy(exposedObject, {
-    // defineProperty(target, name, desc) {
-    //   return Reflect.defineProperty(target, name, desc);
-    // },
-    get(_, name): any {
-      switch (name) {
-        case "window":
-        case "self":
-        case "globalThis":
-          return exposedProxy;
-        case "top":
-        case "parent":
-          if (global[name] === global.self) {
-            return special.global || exposedProxy;
-          }
-          return global.top;
-        case "close":
-        case "focus":
-        case "onurlchange":
-          if (context["window"][name]) {
-            return context["window"][name];
-          }
+
+  if (context.window && context.window.close) {
+    exposedObject.close = context.window.close;
+  }
+
+  if (context.window && context.window.focus) {
+    exposedObject.focus = context.window.focus;
+  }
+
+  if (context.window && context.window.onurlchange === null){
+    // 目前 TM 只支援 null. ScriptCat預設null？
+    exposedObject.onurlchange = null;
+  }
+
+  exposedProxy = new Proxy(exposedObject, {
+    deleteProperty(target, prop) {
+      const b = (prop in target);
+      const ret = Reflect.deleteProperty(target, prop);
+      if (b && ret) {
+        init.delete(prop);
       }
-      if (name !== "undefined") {
-        if (has(exposedObject, name)) {
-          // @ts-ignore
-          return exposedObject[name];
+      return ret;
+    },
+    get(target, name): any {
+      if (typeof name === "symbol" || hasOwn(target, name)) {
+        return Reflect.get(target, name);
+      }
+      if (init.has(name)) {
+        // 不在 exposedObject 但在 window 
+        // 取 window 上的 (僅限最初的鍵. 見Issue #273)
+
+        // if (eventHandlerKeys.has(name)) {
+        //   const val = global[name];
+        //   if (typeof val === "function" && !(<{ prototype: any }>val).prototype) {
+        //     return (<{ bind: any }>val).bind(global);
+        //   }
+        // }
+        const val = <(this: any, ...args: any) => void | any>Reflect.get(global, name);
+        if (typeof val === "function" && !val.prototype) {
+          return val.bind(global);
         }
-        if (typeof name === "string") {
-          if (has(context, name)) {
-            if (has(protect, name)) {
-              return undefined;
-            }
-            return context[name];
-          }
-          if (has(special, name)) {
-            if (typeof special[name] === "function" && !(<{ prototype: any }>special[name]).prototype) {
-              return (<{ bind: any }>special[name]).bind(global);
-            }
-            return special[name];
-          }
-          if (has(global, name)) {
-            // 特殊处理onxxxx的事件
-            if (name.startsWith("on")) {
-              if (typeof global[name] === "function" && !(<{ prototype: any }>global[name]).prototype) {
-                return (<{ bind: any }>global[name]).bind(global);
-              }
-              return global[name];
-            }
-          }
-          if (init.has(name)) {
-            const val = global[name];
-            if (typeof val === "function" && !(<{ prototype: any }>val).prototype) {
-              return (<{ bind: any }>val).bind(global);
-            }
-            return val;
-          }
-        } else if (name === Symbol.unscopables) {
-          return unscopables;
-        }
+        return val;
       }
       return undefined;
     },
-    has(_, name) {
-      switch (name) {
-        case "window":
-        case "self":
-        case "globalThis":
-          return true;
-        case "top":
-        case "parent":
-          // if (global[name] === global.self) {
-          //   return true;
-          // }
-          return true;
-        case "undefined":
-          return false;
-        default:
-          break;
+    has(target, name) {
+      const ret = Reflect.has(target, name);
+      if (typeof name === "symbol" || ret) {
+        return ret;
       }
-      if (typeof name === "string") {
-        if (has(unscopables, name)) {
-          return false;
-        }
-        if (has(exposedObject, name)) {
-          return true;
-        }
-        if (has(special, name)) {
-          return true;
-        }
-        // 只处理onxxxx的事件
-        if (has(global, name)) {
-          if (name.startsWith("on")) {
-            return true;
-          }
-        }
-      } else if (typeof name === "symbol") {
-        return has(exposedObject, name);
+      if (init.has(name)) {
+        return Reflect.has(global, name);
       }
       return false;
     },
-    set(_, name: string, val) {
-      switch (name) {
-        case "window":
-        case "self":
-        case "globalThis":
-          return false;
-        default:
-      }
-      if (has(special, name)) {
-        special[name] = val;
-        return true;
-      }
-      if (init.has(name)) {
-        const des = Object.getOwnPropertyDescriptor(global, name);
-        // 只读的return
-        if (des && des.get && !des.set && des.configurable) {
-          return true;
-        }
+    set(target, name, val) {
+      const initHas = (init.get(name) ?? 0);
+      if (initHas & 1) {
         // 只处理onxxxx的事件
-        if (has(global, name) && name.startsWith("on")) {
-          const eventName = name.slice(2);
-          if (val === undefined) {
-            global.removeEventListener(eventName, exposedObject[name]);
-          } else {
-            if (exposedObject[name]) {
-              global.removeEventListener(eventName, exposedObject[name]);
+        if (initHas & 2) {
+          const currentVal = target[name];
+          // onxxxx的事件 在exposedObject 上修改时，没有实际作用
+          // 需使用EventListener机制
+          
+          if (val !== currentVal) {
+            const eventName = (<string>name).slice(2);
+            if (isEventListener(currentVal)) {
+              global.removeEventListener(eventName, currentVal);
             }
-            global.addEventListener(eventName, val);
+            if (isEventListener(val)) {
+              global.addEventListener(eventName, val);
+            } else {
+              val = null;
+            }
           }
-          exposedObject[name] = val;
-          return true;
+          const ret = Reflect.set(target, name, val);
+          return ret;
+        }
+        // read-only property
+        if (initHas & 4) {
+          return false;
         }
       }
-      // @ts-ignore
-      exposedObject[name] = val;
-      return true;
+      return Reflect.set(target, name, val);
     },
-    getOwnPropertyDescriptor(_, name) {
+    getOwnPropertyDescriptor(target, name) {
       try {
-        let ret = Object.getOwnPropertyDescriptor(exposedObject, name);
-        if (ret) {
-          return ret;
+        let ret = Reflect.getOwnPropertyDescriptor(target, name);
+        if (!ret && init.has(name)) {
+          ret = Reflect.getOwnPropertyDescriptor(global, name);
         }
-        ret = Object.getOwnPropertyDescriptor(context, name);
-        if (ret) {
-          return ret;
-        }
-        ret = Object.getOwnPropertyDescriptor(global, name);
         return ret;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (e) {
-        return undefined;
+      } catch (_) {
+        // do nothing
       }
     },
   });
