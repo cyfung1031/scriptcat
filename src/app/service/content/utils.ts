@@ -195,7 +195,10 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     set undefined(_) {},
     ...writables // addEventListener, setTimeout, etc
   };
-  exposedObject[Symbol.unscopables] = unscopables;
+  const mUnscopables: {
+    [key: string | number | symbol]: any;
+  } = { ...unscopables };
+  exposedObject[Symbol.unscopables] = mUnscopables;
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
   exposedObject.eval = global.eval;
@@ -223,11 +226,24 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   exposedProxy = new Proxy(exposedObject, {
     deleteProperty(target, prop) {
       const b = (prop in target);
-      const ret = Reflect.deleteProperty(target, prop);
-      if (b && ret) {
-        init.delete(prop);
+      const c = (prop in global);
+      if(b && c){
+        const ret = Reflect.deleteProperty(target, prop);
+        if (ret) {
+          target[prop] = undefined;
+          mUnscopables[prop] = true;
+        }
+        return ret;
+      } else if (b && !c){
+        return Reflect.deleteProperty(target, prop);
+      } else {
+        return false;
       }
-      return ret;
+      // const ret = Reflect.deleteProperty(target, prop);
+      // if (b && ret) {
+      //   init.delete(prop);
+      // }
+      // return ret;
     },
     get(target, name): any {
       if (typeof name === "symbol" || hasOwn(target, name)) {
