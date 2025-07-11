@@ -246,14 +246,6 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     get(target, name){
       const val = <(this: any, ...args: any) => void | any>Reflect.get(target,name);
       if(val!==undefined){
-        // if (val === withContext) {
-        //   delete target[name];
-        //   withContext = {};
-        //   return val;
-        // }
-        if (typeof val === "function" && !val.prototype) {
-          return bindHelper(val);
-        }
         return val;
       }
       if(init.has(name) ){
