@@ -48,11 +48,11 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   // @grant none 时，不让 preCode 中的外部代码存取 GM 跟 GM_info，以arguments[0]存取 GM 跟 GM_info
   // 使用sandboxContext时，arguments[0]为undefined
   return `try {
-  with(this.a||{}){
+  with(this.$||arguments[0]){
     ${preCode}
-    return (async function({GM,GM_info}){
+    return (async function(){
     ${code}
-    }).call(this,arguments[0]||{GM,GM_info});
+    }).call(this);
   }
 } catch (e) {
   if (e.message && e.stack) {
@@ -174,7 +174,7 @@ const isEventListener = (x:any)=> (typeof x === 'function' || typeof x === 'obje
 // 拦截上下文
 export function createProxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
   let exposedWindowProxy : Context | undefined = undefined;
-  let withContext: Context | undefined | { [key: string]: any } = undefined;
+  // let withContext: Context | undefined | { [key: string]: any } = undefined;
   // 為避免做成混亂。 ScriptCat腳本中 self, globalThis, parent 為固定值不能修改
 
   const mUnscopables: {
@@ -203,8 +203,19 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       return undefined;
     },
     set undefined(_) {},
-    get a() {
-      return withContext;
+    get $() {
+      delete this.$;
+      return new Proxy(<Context>exposedWindowProxy, {
+        has(_, name) {
+          switch (name) {
+            // case "arguments":
+            case "this":
+              return false; // continues searching the outer scope chain.
+          }
+          return true; // call exposedWindowProxy get trap
+          // return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
+        }
+      });
     },
     [Symbol.toStringTag]: "Window",
     [Symbol.unscopables]: mUnscopables,
@@ -288,9 +299,14 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       return Reflect.set(target, name, val);
     },
     has(target,name){
-      const bool = Reflect.has(target,name);
-      if(bool) return true;
-      if(init.has(name) ){
+      switch (name) {
+        case "this":
+        case "arguments":
+          return false;
+      }
+      const bool = Reflect.has(target, name);
+      if (bool) return true;
+      if (init.has(name)) {
         return true;
       }
       return false;
@@ -299,11 +315,17 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   exposedWindowProxy = new Proxy(exposedWindow,exposedWindowProxyHandler);
 
-  withContext = new Proxy(<Context>exposedWindowProxy, {
-    has(_, name) {
-      return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
-    }
-  });
+  // withContext = new Proxy(<Context>exposedWindowProxy, {
+  //   has(_, name) {
+  //     switch (name) {
+  //       case "arguments":
+  //       case "this":
+  //         return false; // continues searching the outer scope chain.
+  //     }
+  //     return true; // call exposedWindowProxy get trap
+  //     // return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
+  //   }
+  // });
 
   console.log(exposedWindowProxy)
 
