@@ -45,14 +45,13 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   // context 和 name 以unnamed arguments方式导入。避免代码能直接以变量名存取
   // this = context: globalThis
   // arguments = [named: Object, scriptName: string]
-  // @grant none 时，不让 preCode 中的外部代码存取 GM 跟 GM_info，以arguments[0]存取 GM 跟 GM_info
-  // 使用sandboxContext时，arguments[0]为undefined
+  // 使用sandboxContext时，arguments[0]为undefined, this.$则为一次性Proxy变量，用於全域拦截context
   return `try {
   with(this.$||arguments[0]){
 ${preCode}
-    return (async()=>{
+    return (async function(){
 ${code}
-    })();
+    }).call(this);
   }
 } catch (e) {
   if (e.message && e.stack) {
@@ -102,9 +101,12 @@ export const writables: { [key: string]: any } = {};
 export const init = new Map<string | symbol, number>();
 
 // 需要用到全局的
+// 不進行 with 攔截
 export const unscopables: { [key: string]: boolean } = {
   NodeFilter: true,
   RegExp: true,
+  "this": true,
+  "arguments": true
 };
 
 const descsCache = new Set();
@@ -113,7 +115,6 @@ const descsCache = new Set();
 getAllPropertyDescriptors(global, ([key, desc]) => {
   if (!desc || descsCache.has(key) || typeof key !== 'string') return;
   descsCache.add(key);
-
   // 可写但不在特殊配置writables中
   if (desc.writable) {
     // value
@@ -125,36 +126,36 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
     }
     writables[key] = needBind ? value.bind(global) : value;
   } else {
-    // read-only property (configurable getter)
-    if (desc.get && !desc.set && desc.configurable) {
-      init.set(key, 1 | 4);
+    let k = 1;
+    if (desc.configurable && desc.get) {
+      if (!desc.set) {
+        // read-only property (configurable getter)
+        k |= 4;
+      } else if (desc.enumerable && key.startsWith('on')) {
+        // setter getter
+        k |= 2;
+      }
     }
-    // setter getter
-    else if (desc.enumerable && desc.configurable && desc.get && desc.set && key.startsWith('on')) {
-      init.set(key, 1 | 2);
-    } else {
-      init.set(key, 1);
-    }
+    init.set(key, k);
   }
-
 });
 descsCache.clear();
 
 export function warpObject(exposedObject: object, context: object) {
   // 处理Object上的方法
-  exposedObject.hasOwnProperty = (name: PropertyKey) => {
-    return (
-      Object.hasOwnProperty.call(exposedObject, name) || Object.hasOwnProperty.call(context, name)
-    );
-  };
-  exposedObject.isPrototypeOf = (name: object) => {
-    return Object.isPrototypeOf.call(exposedObject, name) || Object.isPrototypeOf.call(context, name);
-  };
-  exposedObject.propertyIsEnumerable = (name: PropertyKey) => {
-    return (
-      Object.propertyIsEnumerable.call(exposedObject, name) || Object.propertyIsEnumerable.call(context, name)
-    );
-  };
+  // exposedObject.hasOwnProperty = (name: PropertyKey) => {
+  //   return (
+  //     Object.hasOwnProperty.call(exposedObject, name) || Object.hasOwnProperty.call(context, name)
+  //   );
+  // };
+  // exposedObject.isPrototypeOf = (name: object) => {
+  //   return Object.isPrototypeOf.call(exposedObject, name) || Object.isPrototypeOf.call(context, name);
+  // };
+  // exposedObject.propertyIsEnumerable = (name: PropertyKey) => {
+  //   return (
+  //     Object.propertyIsEnumerable.call(exposedObject, name) || Object.propertyIsEnumerable.call(context, name)
+  //   );
+  // };
 }
 
 type GMWorldContext = ((typeof globalThis) & ({
@@ -206,14 +207,8 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     get $() {
       delete this.$;
       return new Proxy(<Context>exposedWindowProxy, {
-        has(_, name) {
-          switch (name) {
-            // case "arguments":
-            case "this":
-              return false; // continues searching the outer scope chain.
-          }
-          return true; // call exposedWindowProxy get trap
-          // return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
+        has() {
+          return true;
         }
       });
     },
@@ -242,24 +237,37 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     exposedWindow.onurlchange = null;
   }
 
-  const bindHelperMap = new Map();
-  const bindHelper = (f:any)=>{
-    if(bindHelperMap.has(f)){
-      return bindHelperMap.get(f);
+  const bindHelperMap = new WeakMap<InstanceType<typeof Function>, InstanceType<typeof Function>>();
+  const bindHelper = (f: InstanceType<typeof Function>) => {
+    let g = bindHelperMap.get(f);
+    if (!g) {
+      g = <InstanceType<typeof Function>>f.bind(global);
+      bindHelperMap.set(f, g);
+      bindHelperMap.set(g, g);
     }
-    const g = f.bind(global);
-    bindHelperMap.set(f, g);
-    bindHelperMap.set(g, g);
     return g;
   }
 
-  const exposedWindowProxyHandler:ProxyHandler<Context> = {
-    get(target, name){
-      const val = <(this: any, ...args: any) => void | any>Reflect.get(target,name);
-      if(val!==undefined){
+  const exposedWindowProxyHandler: ProxyHandler<Context> = {
+    getOwnPropertyDescriptor(target, prop) {
+      // X.hasOwnProperty
+      return Reflect.getOwnPropertyDescriptor(target, prop) || (init.has(prop) ? {
+        configurable: false,
+        enumerable: false,
+        get() { },
+        set(_) { }
+      } : undefined);
+    },
+    getPrototypeOf(_){
+      // X.isPrototypeOf, X instanceof Window
+      return Window.prototype;
+    },
+    get(target, name) {
+      const val = <(this: any, ...args: any) => void | any>Reflect.get(target, name);
+      if (val !== undefined) {
         return val;
       }
-      if(init.has(name) ){
+      if (init.has(name)) {
         const val = <(this: any, ...args: any) => void | any>Reflect.get(global, name);
         if (typeof val === "function" && !val.prototype) {
           return bindHelper(val);
@@ -299,17 +307,8 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       return Reflect.set(target, name, val);
     },
     has(target,name){
-      switch (name) {
-        case "this":
-        case "arguments":
-          return false;
-      }
-      const bool = Reflect.has(target, name);
-      if (bool) return true;
-      if (init.has(name)) {
-        return true;
-      }
-      return false;
+      const bool = Reflect.has(target, name) || init.has(name);
+      return bool;
     }
   };
 
