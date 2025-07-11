@@ -49,10 +49,10 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   // 使用sandboxContext时，arguments[0]为undefined
   return `try {
   with(this.$||arguments[0]){
-    ${preCode}
-    return (async function(){
-    ${code}
-    }).call(this);
+${preCode}
+    return (async()=>{
+${code}
+    })();
   }
 } catch (e) {
   if (e.message && e.stack) {
