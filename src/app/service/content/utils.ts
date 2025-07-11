@@ -48,7 +48,7 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   // @grant none 时，不让 preCode 中的外部代码存取 GM 跟 GM_info，以arguments[0]存取 GM 跟 GM_info
   // 使用sandboxContext时，arguments[0]为undefined
   return `try {
-  with(this){
+  with(this.a){
     ${preCode}
     return (async function({GM,GM_info}){
     ${code}
@@ -170,22 +170,29 @@ const isEventListener = (x:any)=> (typeof x === 'function' || typeof x === 'obje
 
 // 拦截上下文
 export function createProxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
-  let exposedProxy: Context | undefined = undefined;
+  let exposedWindowProxy : Context | undefined = undefined;
   // 為避免做成混亂。 ScriptCat腳本中 self, globalThis, parent 為固定值不能修改
-  const exposedObject: Context = <Context>{
-    get window() { return exposedProxy },
+
+  const mUnscopables: {
+    [key: string | number | symbol]: any;
+  } = { ...unscopables };
+
+  const exposedWindow = <Context>Object.create(Window.prototype);
+
+  Object.assign(exposedWindow,{
+    get window() { return exposedWindowProxy },
     set window(_) {},
-    get self() { return exposedProxy }, // cannot change
+    get self() { return exposedWindowProxy }, // cannot change
     set self(_) {},
-    get globalThis() { return exposedProxy }, // cannot change
+    get globalThis() { return exposedWindowProxy }, // cannot change
     set globalThis(_) {},
     get top() {
-      if (global.top === global.self) return exposedProxy;
+      if (global.top === global.self) return exposedWindowProxy;
       return global.top;
     },
     set top(_) {},
     get parent() { // cannot change
-      if (global.parent === global.self) return exposedProxy;
+      if (global.parent === global.self) return exposedWindowProxy;
       return global.parent;
     },
     set parent(_) {},
@@ -193,89 +200,73 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       return undefined;
     },
     set undefined(_) {},
-    ...writables // addEventListener, setTimeout, etc
-  };
-  const mUnscopables: {
-    [key: string | number | symbol]: any;
-  } = { ...unscopables };
-  exposedObject[Symbol.unscopables] = mUnscopables;
+    get a() {
+      return withContext;
+    },
+    ...writables
+  });
+
+
+
+
+  exposedWindow[Symbol.unscopables] = mUnscopables;
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
-  exposedObject.eval = global.eval;
+  exposedWindow.eval = global.eval;
   // exposedObject.define = undefined;
-  warpObject(exposedObject, global);
+  warpObject(exposedWindow, global);
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
     if (key in protect || key === 'window') continue;
-    exposedObject[key] = context[key]; // window以外
+    exposedWindow[key] = context[key]; // window以外
   }
 
   if (context.window && context.window.close) {
-    exposedObject.close = context.window.close;
+    exposedWindow.close = context.window.close;
   }
 
   if (context.window && context.window.focus) {
-    exposedObject.focus = context.window.focus;
+    exposedWindow.focus = context.window.focus;
   }
 
   if (context.window && context.window.onurlchange === null){
     // 目前 TM 只支援 null. ScriptCat預設null？
-    exposedObject.onurlchange = null;
+    exposedWindow.onurlchange = null;
   }
 
-  exposedProxy = new Proxy(exposedObject, {
-    deleteProperty(target, prop) {
-      const b = (prop in target);
-      const c = (prop in global);
-      if(b && c){
-        const ret = Reflect.deleteProperty(target, prop);
-        if (ret) {
-          target[prop] = undefined;
-          mUnscopables[prop] = true;
-        }
-        return ret;
-      } else if (b && !c){
-        return Reflect.deleteProperty(target, prop);
-      } else {
-        return false;
-      }
-      // const ret = Reflect.deleteProperty(target, prop);
-      // if (b && ret) {
-      //   init.delete(prop);
-      // }
-      // return ret;
-    },
-    get(target, name): any {
-      if (typeof name === "symbol" || hasOwn(target, name)) {
-        return Reflect.get(target, name);
-      }
-      if (init.has(name)) {
-        // 不在 exposedObject 但在 window 
-        // 取 window 上的 (僅限最初的鍵. 見Issue #273)
+  const bindHelperMap = new Map();
+  const bindHelper = (f:any)=>{
+    if(bindHelperMap.has(f)){
+      return bindHelperMap.get(f);
+    }
+    const g = f.bind(global);
+    bindHelperMap.set(f, g);
+    bindHelperMap.set(g, g);
+    return g;
+  }
 
-        // if (eventHandlerKeys.has(name)) {
-        //   const val = global[name];
-        //   if (typeof val === "function" && !(<{ prototype: any }>val).prototype) {
-        //     return (<{ bind: any }>val).bind(global);
-        //   }
-        // }
+  const exposedWindowProxyHandler:ProxyHandler<Context> = {
+    get(target, name){
+      const val = <(this: any, ...args: any) => void | any>Reflect.get(target,name);
+      if(val!==undefined){
+        if (val === withContext) {
+          delete target[name];
+          withContext = {};
+          return val;
+        }
+        if (typeof val === "function" && !val.prototype) {
+          return bindHelper(val);
+        }
+        return val;
+      }
+      if(init.has(name) ){
         const val = <(this: any, ...args: any) => void | any>Reflect.get(global, name);
         if (typeof val === "function" && !val.prototype) {
-          return val.bind(global);
+          return bindHelper(val);
         }
         return val;
       }
       return undefined;
-    },
-    has(target, name) {
-      const ret = Reflect.has(target, name);
-      if (typeof name === "symbol" || ret) {
-        return ret;
-      }
-      if (init.has(name)) {
-        return Reflect.has(global, name);
-      }
-      return false;
     },
     set(target, name, val) {
       const initHas = (init.get(name) ?? 0);
@@ -307,20 +298,135 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       }
       return Reflect.set(target, name, val);
     },
-    getOwnPropertyDescriptor(target, name) {
-      try {
-        let ret = Reflect.getOwnPropertyDescriptor(target, name);
-        if (!ret && init.has(name)) {
-          ret = Reflect.getOwnPropertyDescriptor(global, name);
-        }
-        return ret;
-      } catch (_) {
-        // do nothing
+    has(target,name){
+      const bool = Reflect.has(target,name);
+      if(bool) return true;
+      if(init.has(name) ){
+        return true;
       }
+      return false;
+    }
+  };
+
+  exposedWindowProxy = new Proxy(exposedWindow,exposedWindowProxyHandler);
+
+  let withContext: Context | null | { [key: string]: any } = new Proxy(<Context>{}, {
+    get(_, name){
+      if(name === 'window' || name ==='self' || name==='globalThis') return exposedWindowProxy;
+      return Reflect.get(exposedWindow, name, exposedWindowProxyHandler);
     },
+    set(_, name){
+      return Reflect.set(exposedWindow, name, exposedWindowProxyHandler);
+    },
+    has(_, name) {
+      return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
+    }
   });
-  exposedProxy[Symbol.toStringTag] = "Window";
-  return exposedProxy;
+
+
+
+  // exposedProxy = new Proxy(exposedObject, {
+  //   deleteProperty(target, prop) {
+  //     const b = (prop in target);
+  //     const c = (prop in global);
+  //     if(b && c){
+  //       const ret = Reflect.deleteProperty(target, prop);
+  //       if (ret) {
+  //         target[prop] = undefined;
+  //         mUnscopables[prop] = true;
+  //       }
+  //       return ret;
+  //     } else if (b && !c){
+  //       return Reflect.deleteProperty(target, prop);
+  //     } else {
+  //       return false;
+  //     }
+  //     // const ret = Reflect.deleteProperty(target, prop);
+  //     // if (b && ret) {
+  //     //   init.delete(prop);
+  //     // }
+  //     // return ret;
+  //   },
+  //   get(target, name): any {
+  //     if (typeof name === "symbol" || hasOwn(target, name)) {
+  //       return Reflect.get(target, name);
+  //     }
+  //     if (init.has(name)) {
+  //       // 不在 exposedObject 但在 window 
+  //       // 取 window 上的 (僅限最初的鍵. 見Issue #273)
+
+  //       // if (eventHandlerKeys.has(name)) {
+  //       //   const val = global[name];
+  //       //   if (typeof val === "function" && !(<{ prototype: any }>val).prototype) {
+  //       //     return (<{ bind: any }>val).bind(global);
+  //       //   }
+  //       // }
+  //       const val = <(this: any, ...args: any) => void | any>Reflect.get(global, name);
+  //       if (typeof val === "function" && !val.prototype) {
+  //         return val.bind(global);
+  //       }
+  //       return val;
+  //     }
+  //     return undefined;
+  //   },
+  //   has(target, name) {
+  //     if (Reflect.has(global, name)) {
+  //       // 保護global. 在exposedProxy堵住
+  //       return true;
+  //     }
+  //     const ret = Reflect.has(target, name);
+  //     if (typeof name === "symbol" || ret) {
+  //       return ret;
+  //     }
+  //     if (init.has(name)) {
+  //       return Reflect.has(global, name);
+  //     }
+  //     return false;
+  //   },
+  //   set(target, name, val) {
+  //     const initHas = (init.get(name) ?? 0);
+  //     if (initHas & 1) {
+  //       // 只处理onxxxx的事件
+  //       if (initHas & 2) {
+  //         const currentVal = target[name];
+  //         // onxxxx的事件 在exposedObject 上修改时，没有实际作用
+  //         // 需使用EventListener机制
+          
+  //         if (val !== currentVal) {
+  //           const eventName = (<string>name).slice(2);
+  //           if (isEventListener(currentVal)) {
+  //             global.removeEventListener(eventName, currentVal);
+  //           }
+  //           if (isEventListener(val)) {
+  //             global.addEventListener(eventName, val);
+  //           } else {
+  //             val = null;
+  //           }
+  //         }
+  //         const ret = Reflect.set(target, name, val);
+  //         return ret;
+  //       }
+  //       // read-only property
+  //       if (initHas & 4) {
+  //         return false;
+  //       }
+  //     }
+  //     return Reflect.set(target, name, val);
+  //   },
+  //   getOwnPropertyDescriptor(target, name) {
+  //     try {
+  //       let ret = Reflect.getOwnPropertyDescriptor(target, name);
+  //       if (!ret && init.has(name)) {
+  //         ret = Reflect.getOwnPropertyDescriptor(global, name);
+  //       }
+  //       return ret;
+  //     } catch (_) {
+  //       // do nothing
+  //     }
+  //   },
+  // });
+  // exposedProxy[Symbol.toStringTag] = "Window";
+  return exposedWindowProxy;
 }
 
 export function addStyle(css: string): HTMLElement {
