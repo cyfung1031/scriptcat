@@ -178,13 +178,8 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     [key: string | number | symbol]: any;
   } = { ...unscopables };
 
-  const exposedWindow = <Context>Object.create(Window.prototype);
-
-  for(const w of Object.keys(writables)){
-    exposedWindow[w] = writables[w];
-  }
-
-  Object.assign(exposedWindow,{
+  const exposedWindow = <Context | { [key: string]: any } > {
+    ...writables,
     get window() { return exposedWindowProxy },
     set window(_) {},
     get self() { return exposedWindowProxy }, // cannot change
@@ -207,17 +202,12 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     set undefined(_) {},
     get a() {
       return withContext;
-    }
-  });
+    },
+    [Symbol.toStringTag]: "Window",
+    [Symbol.unscopables]: mUnscopables,
+    eval: global.eval,  // 后台脚本要不要考虑不能使用eval?
 
-
-
-
-  exposedWindow[Symbol.unscopables] = mUnscopables;
-  // 处理某些特殊的属性
-  // 后台脚本要不要考虑不能使用eval?
-  exposedWindow.eval = global.eval;
-  // exposedObject.define = undefined;
+  };
   warpObject(exposedWindow, global);
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
@@ -431,7 +421,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   //     }
   //   },
   // });
-  exposedWindowProxy[Symbol.toStringTag] = "Window";
+  // exposedWindowProxy[Symbol.toStringTag] = "Window";
   return exposedWindowProxy;
 }
 
