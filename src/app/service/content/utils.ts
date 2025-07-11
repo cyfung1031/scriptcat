@@ -48,7 +48,7 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   // @grant none 时，不让 preCode 中的外部代码存取 GM 跟 GM_info，以arguments[0]存取 GM 跟 GM_info
   // 使用sandboxContext时，arguments[0]为undefined
   return `try {
-  with(this.a){
+  with(this.a||{}){
     ${preCode}
     return (async function({GM,GM_info}){
     ${code}
@@ -250,11 +250,11 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     get(target, name){
       const val = <(this: any, ...args: any) => void | any>Reflect.get(target,name);
       if(val!==undefined){
-        if (val === withContext) {
-          delete target[name];
-          withContext = {};
-          return val;
-        }
+        // if (val === withContext) {
+        //   delete target[name];
+        //   withContext = {};
+        //   return val;
+        // }
         if (typeof val === "function" && !val.prototype) {
           return bindHelper(val);
         }
