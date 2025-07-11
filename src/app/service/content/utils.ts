@@ -9,15 +9,15 @@ import { protect } from "./gm_context";
 // @ts-ignore: Object is possibly 'undefined'.
 
 // @ts-ignore
-const hasOwn = Object.hasOwn || ((object: any, key: any) => {
-  switch (object) {
-    case undefined:
-    case null:
-      return false;
-    default:
-      return Object.prototype.hasOwnProperty.call(object, key);
-  }
-});
+// const hasOwn = Object.hasOwn || ((object: any, key: any) => {
+//   switch (object) {
+//     case undefined:
+//     case null:
+//       return false;
+//     default:
+//       return Object.prototype.hasOwnProperty.call(object, key);
+//   }
+// });
 
 // 构建脚本运行代码
 /**
@@ -171,6 +171,7 @@ const isEventListener = (x:any)=> (typeof x === 'function' || typeof x === 'obje
 // 拦截上下文
 export function createProxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
   let exposedWindowProxy : Context | undefined = undefined;
+  let withContext: Context | undefined | { [key: string]: any } = undefined;
   // 為避免做成混亂。 ScriptCat腳本中 self, globalThis, parent 為固定值不能修改
 
   const mUnscopables: {
@@ -310,7 +311,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   exposedWindowProxy = new Proxy(exposedWindow,exposedWindowProxyHandler);
 
-  let withContext: Context | null | { [key: string]: any } = new Proxy(<Context>{}, {
+  withContext = new Proxy(<Context>{}, {
     get(_, name){
       if(name === 'window' || name ==='self' || name==='globalThis') return exposedWindowProxy;
       return Reflect.get(exposedWindow, name, exposedWindowProxyHandler);
