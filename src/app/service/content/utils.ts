@@ -180,6 +180,10 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   const exposedWindow = <Context>Object.create(Window.prototype);
 
+  for(const w of Object.keys(writables)){
+    exposedWindow[w] = writables[w];
+  }
+
   Object.assign(exposedWindow,{
     get window() { return exposedWindowProxy },
     set window(_) {},
@@ -203,8 +207,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     set undefined(_) {},
     get a() {
       return withContext;
-    },
-    ...writables
+    }
   });
 
 
@@ -325,7 +328,6 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   });
 
   console.log(exposedWindowProxy)
-  debugger;
 
 
 
