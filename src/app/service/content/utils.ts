@@ -164,6 +164,9 @@ type GMWorldContext = ((typeof globalThis) & ({
   globalThis: any;
 }) | ({
   [key: string | number | symbol]: any;
+  window: any;
+  self: any;
+  globalThis: any;
 }));
 
 const isEventListener = (x:any)=> (typeof x === 'function' || typeof x === 'object' && x?.handleEvent);
@@ -178,7 +181,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     [key: string | number | symbol]: any;
   } = { ...unscopables };
 
-  const exposedWindow = <Context | { [key: string]: any } > {
+  const exposedWindow = <GMWorldContext>{
     ...writables,
     get window() { return exposedWindowProxy },
     set window(_) {},
@@ -207,7 +210,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     [Symbol.unscopables]: mUnscopables,
     eval: global.eval,  // 后台脚本要不要考虑不能使用eval?
 
-  };
+  } as Context;
   warpObject(exposedWindow, global);
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
@@ -304,7 +307,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   exposedWindowProxy = new Proxy(exposedWindow,exposedWindowProxyHandler);
 
-  withContext = new Proxy(<Context>{}, {
+  withContext = new Proxy(<Context>exposedWindow, {
     get(_, name){
       if(name === 'window' || name ==='self' || name==='globalThis') return exposedWindowProxy;
       return Reflect.get(exposedWindow, name, exposedWindowProxyHandler);
