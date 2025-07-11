@@ -50,9 +50,9 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   return `try {
   with(this){
     ${preCode}
-    return (async({GM,GM_info})=>{
+    return (async function({GM,GM_info}){
     ${code}
-    })(arguments[0]||{GM,GM_info});
+    }).call(this,arguments[0]||{GM,GM_info});
   }
 } catch (e) {
   if (e.message && e.stack) {
