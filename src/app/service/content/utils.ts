@@ -178,7 +178,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     [key: string | number | symbol]: any;
   } = { ...unscopables };
 
-  const exposedWindow = <Context>{};
+  const exposedWindow = <Context>Object.create(Window.prototype);
 
   Object.assign(exposedWindow,{
     get window() { return exposedWindowProxy },
@@ -323,6 +323,9 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       return Reflect.has(global, name) || Reflect.has(exposedWindow, name); // 保護global
     }
   });
+
+  console.log(exposedWindowProxy)
+  debugger;
 
 
 
