@@ -127,6 +127,10 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
     writables[key] = needBind ? value.bind(global) : value;
   } else {
     let k = 1;
+    if (desc.configurable) k |= 8;
+    if (desc.enumerable) k |= 16;
+    if (desc.get) k |= 32;
+    if (desc.set) k |= 64;
     if (desc.configurable && desc.get) {
       if (!desc.set) {
         // read-only property (configurable getter)  (e.g. window.document, window.window)
@@ -134,9 +138,6 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
       } else if (desc.enumerable && key.startsWith('on')) {
         // setter getter (e.g. window.onload)
         k |= 2;
-      } else {
-        // window.location
-        k |= 8;
       }
     }
     init.set(key, k);
@@ -259,23 +260,13 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
         return ret;
       }
       const k = init.get(prop) ?? 0;
-      if (k & 4) return {
-        configurable: false,
-        enumerable: true,
-        get() { },
-        set: undefined
-      }
-      if (k & 2) return {
-        configurable: true,
-        enumerable: true,
-        get() { },
-        set(_) { }
-      }
-      if (k & 8) return {
-        configurable: false,
-        enumerable: true,
-        get() { },
-        set(_) { }
+      if (k & 1) {
+        return {
+          configurable: (k & 8) === 8,
+          enumerable: (k & 16) === 16,
+          get: (k & 32) === 32 ? () => { return target[prop] } : undefined,
+          set: (k & 64) === 64 ? (nv) => { target[prop] = nv } : undefined
+        }
       }
       return undefined;
     },
@@ -283,13 +274,13 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       // X.isPrototypeOf, X instanceof Window, Object.getPrototypeOf(X)
       return Window.prototype;
     },
-    get(target, name) {
-      const val = <(this: any, ...args: any) => void | any>Reflect.get(target, name);
+    get(target, prop) {
+      const val = <(this: any, ...args: any) => void | any>Reflect.get(target, prop);
       if (val !== undefined) {
         return val;
       }
-      if (init.has(name)) {
-        const val = <(this: any, ...args: any) => void | any>Reflect.get(global, name);
+      if (init.has(prop)) {
+        const val = <(this: any, ...args: any) => void | any>Reflect.get(global, prop);
         if (typeof val === "function" && !val.prototype) {
           return bindHelper(val);
         }
@@ -297,17 +288,17 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       }
       return undefined;
     },
-    set(target, name, val) {
-      const initHas = (init.get(name) ?? 0);
+    set(target, prop, val) {
+      const initHas = (init.get(prop) ?? 0);
       if (initHas & 1) {
         // 只处理onxxxx的事件
         if (initHas & 2) {
-          const currentVal = target[name];
+          const currentVal = target[prop];
           // onxxxx的事件 在exposedObject 上修改时，没有实际作用
           // 需使用EventListener机制
           
           if (val !== currentVal) {
-            const eventName = (<string>name).slice(2);
+            const eventName = (<string>prop).slice(2);
             if (isEventListener(currentVal)) {
               global.removeEventListener(eventName, currentVal);
             }
@@ -317,7 +308,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
               val = null;
             }
           }
-          const ret = Reflect.set(target, name, val);
+          const ret = Reflect.set(target, prop, val);
           return ret;
         }
         // read-only property
@@ -325,10 +316,10 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
           return false;
         }
       }
-      return Reflect.set(target, name, val);
+      return Reflect.set(target, prop, val);
     },
-    has(target,name){
-      const bool = Reflect.has(target, name) || init.has(name);
+    has(target,prop){
+      const bool = Reflect.has(target, prop) || init.has(prop);
       return bool;
     }
   };
