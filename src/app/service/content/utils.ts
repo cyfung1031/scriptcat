@@ -129,11 +129,14 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
     let k = 1;
     if (desc.configurable && desc.get) {
       if (!desc.set) {
-        // read-only property (configurable getter)
+        // read-only property (configurable getter)  (e.g. window.document, window.window)
         k |= 4;
       } else if (desc.enumerable && key.startsWith('on')) {
-        // setter getter
+        // setter getter (e.g. window.onload)
         k |= 2;
+      } else {
+        // window.location
+        k |= 8;
       }
     }
     init.set(key, k);
@@ -141,7 +144,7 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
 });
 descsCache.clear();
 
-export function warpObject(exposedObject: object, context: object) {
+// export function warpObject(exposedObject: object, context: object) {
   // 处理Object上的方法
   // exposedObject.hasOwnProperty = (name: PropertyKey) => {
   //   return (
@@ -156,7 +159,7 @@ export function warpObject(exposedObject: object, context: object) {
   //     Object.propertyIsEnumerable.call(exposedObject, name) || Object.propertyIsEnumerable.call(context, name)
   //   );
   // };
-}
+// }
 
 type GMWorldContext = ((typeof globalThis) & ({
   [key: string | number | symbol]: any;
@@ -217,7 +220,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     eval: global.eval,  // 后台脚本要不要考虑不能使用eval?
 
   } as Context;
-  warpObject(exposedWindow, global);
+  // warpObject(exposedWindow, global);
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
     if (key in protect || key === 'window') continue;
@@ -251,15 +254,33 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   const exposedWindowProxyHandler: ProxyHandler<Context> = {
     getOwnPropertyDescriptor(target, prop) {
       // X.hasOwnProperty
-      return Reflect.getOwnPropertyDescriptor(target, prop) || (init.has(prop) ? {
+      const ret = Reflect.getOwnPropertyDescriptor(target, prop);
+      if (ret) {
+        return ret;
+      }
+      const k = init.get(prop) ?? 0;
+      if (k & 4) return {
         configurable: false,
-        enumerable: false,
+        enumerable: true,
+        get() { },
+        set: undefined
+      }
+      if (k & 2) return {
+        configurable: true,
+        enumerable: true,
         get() { },
         set(_) { }
-      } : undefined);
+      }
+      if (k & 8) return {
+        configurable: false,
+        enumerable: true,
+        get() { },
+        set(_) { }
+      }
+      return undefined;
     },
     getPrototypeOf(_){
-      // X.isPrototypeOf, X instanceof Window
+      // X.isPrototypeOf, X instanceof Window, Object.getPrototypeOf(X)
       return Window.prototype;
     },
     get(target, name) {
