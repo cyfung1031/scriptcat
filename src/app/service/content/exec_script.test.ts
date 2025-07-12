@@ -69,12 +69,19 @@ describe("GM_info", () => {
 describe("unsafeWindow", () => {
 
   it("unsafeWindow available", async () => {
+    console.log(99301)
     const ret0 = sandboxExec.sandboxContext?.unsafeWindow === global;
+    console.log(99302)
     expect(ret0).toEqual(true);
+    console.log(99303)
     scriptRes2.code = `return unsafeWindow;`;
+    console.log(99304)
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    console.log(99305)
     const ret = await sandboxExec.exec();
+    console.log(99306)
     expect(ret).toEqual(global);
+    console.log(99307)
   });
 
   it("sandbox", async () => {
