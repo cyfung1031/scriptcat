@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { init, createProxyContext } from "./utils";
+import { createProxyContext } from "./utils";
 
 describe("proxy context", () => {
   const context: any = {};
@@ -13,8 +13,6 @@ describe("proxy context", () => {
     removeEventListener: () => {},
     location: "ok",
   };
-  init.set("onload", true);
-  init.set("location", true);
   const _this = createProxyContext(global, context);
 
   it("set contenxt", () => {
@@ -23,12 +21,25 @@ describe("proxy context", () => {
     expect(global["md5"]).toEqual(undefined);
   });
 
-  it("set window null", () => {
-    _this["onload"] = "ok";
-    expect(_this["onload"]).toEqual("ok");
-    expect(global["onload"]).toEqual(null);
-    _this["onload"] = undefined;
-    expect(_this["onload"]).toEqual(undefined);
+  it("set window.onload null", () => {
+    // null確認
+    _this["onload"] = null;
+    global["onload"] = null;
+    expect(_this["onload"]).toBeNull();
+    expect(global["onload"]).toBeNull();
+    // _this.onload
+    _this["onload"] = function thisOnLoad() { };
+    expect(_this["onload"]?.name).toEqual("thisOnLoad");
+    expect(global["onload"]).toBeNull();
+    // global.onload
+    _this["onload"] = null;
+    global["onload"] = function globalOnLoad() { };
+    expect(_this["onload"]).toBeNull();
+    expect(global["onload"]?.name).toEqual("globalOnLoad");
+    global["onload"] = null;
+    // 還原確認
+    expect(_this["onload"]).toBeNull();
+    expect(global["onload"]).toBeNull();
   });
 
   it("update", () => {
@@ -56,14 +67,14 @@ describe("proxy context", () => {
 
 // 只允许访问onxxxxx
 describe("window", () => {
-  const _this = createProxyContext({ onanimationstart: null }, {});
-  it("window", () => {
+  const _this = createProxyContext<{ [key: string]: any} & any>({ onanimationstart: null }, {});
+  it("onxxxxx", () => {
     expect(_this.onanimationstart).toBeNull();
   });
 });
 
 describe("兼容问题", () => {
-  const _this = createProxyContext<{ [key: string]: any }>({}, {});
+  const _this = createProxyContext<{ [key: string]: any} & any>({}, {});
   // https://github.com/xcanwin/KeepChatGPT 环境隔离得不够干净导致的
   it("Uncaught TypeError: Illegal invocation #189", () => {
     return new Promise((resolve) => {
@@ -93,7 +104,7 @@ describe("Symbol", () => {
 
 // Object.hasOwnProperty穿透 https://github.com/scriptscat/scriptcat/issues/272
 describe("Object", () => {
-  const _this = createProxyContext<{ [key: string]: any }>({}, {});
+  const _this = createProxyContext<{ [key: string]: any} & any>({}, {});
   it("hasOwnProperty", () => {
     expect(Object.prototype.hasOwnProperty.call(_this, "test1")).toEqual(false);
     _this.test1 = "ok";
