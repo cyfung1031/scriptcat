@@ -7,7 +7,7 @@ if (!("onanimationstart" in global)) {
     let val: any = null;
     Object.defineProperty(global, "onanimationstart", {
         configurable: true,
-        writable: true,
+        enumerable: true,
         set(newVal) {
             val = newVal;
         },
