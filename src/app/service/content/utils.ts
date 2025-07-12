@@ -176,15 +176,15 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
       } else {
 
 
-        if (desc.get) {
-          
-          desc.get= desc.get.bind(global);
 
-        }
+        if (desc.get || desc.set) {
 
-        if (desc.set) {
+          overridedDescs[key] = {
+            ...desc,
+            get: desc?.get?.bind(global),
+            set: desc?.set?.bind(global),
+          };
 
-          desc.set= desc.set.bind(global);
         }
 
 
@@ -287,7 +287,6 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   });
 
   Object.assign(myCopy, {
-    [Symbol.toStringTag]: "Window",
     [Symbol.unscopables]: mUnscopables
   });
 
