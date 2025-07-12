@@ -139,10 +139,10 @@ const getDescs = (global: GMWorldContext) => {
   // 在 CacheSet 加入的propKeys将会在myCopy实装阶段时设置
   const descsCache: Set<string | symbol> = new Set(["eval", "window", "self", "globalThis", "top", "parent"]);
 
-  const myDescs: any = {};
+  const myDescs: typeof ownDescs = {};
 
-  const ownDescs: any = Object.getOwnPropertyDescriptors(global);
-  const anDescs = new Set();
+  const ownDescs = Object.getOwnPropertyDescriptors(global);
+  const anDescs = new Set<TypedPropertyDescriptor<any>>();
 
   // 包含物件本身及所有父类(不包含Object)的PropertyDescriptor
   // 主要是找出哪些 function值， setter/getter 需要替换 global window
@@ -263,6 +263,9 @@ export function createProxyContext<const Context extends GMWorldContext>(mGlobal
   });
 
   myObject[Symbol.unscopables] = {};
+
+  console.log(3772)
+  console.log(myObject)
 
   const exposedObject: Context = <Context>myObject;
   // 处理某些特殊的属性
