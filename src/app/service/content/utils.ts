@@ -230,6 +230,11 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
 
   const ownDescs = Object.getOwnPropertyDescriptors(initCopy);
 
+  console.log(377133);
+  console.log(Object.keys(Object.getOwnPropertyDescriptors(global)).length);
+  console.log(Object.keys(ownDescs).length);
+  console.log(377144);
+
   let myCopy: typeof initCopy | undefined = undefined;
 
   const createFuncWrapper = (f: () => any) => {
