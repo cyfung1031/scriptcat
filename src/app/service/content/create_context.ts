@@ -9,8 +9,8 @@ import { createGMBase } from "./gm_api";
 export function createContext(
   scriptRes: ScriptRunResource,
   GMInfo: any,
-  envPrefix: string,
-  message: Message,
+  envPrefix: string | undefined,
+  message: Message | undefined,
   scriptGrants: Set<string>
 ) {
   // 按照GMApi构建
