@@ -205,20 +205,14 @@ const createFuncWrapper = (f: () => any) => {
 const ownDescs = Object.getOwnPropertyDescriptors(global);
 for (const key of ["window", "self", "globalThis", "top", "parent"]) {
   const desc = ownDescs[key];
-  if(desc.value){
-    ownDescs[key] = {
-      ...desc,
-      get() { return this },
-      set: undefined,
-      writable: undefined,
-      value: undefined
-    }
+  if(desc?.value && key === 'globalThis'){
+    desc.get = function () { return this };
+    desc.set = undefined;
+    delete desc.writable;
+    delete desc.value;
   } else if (desc?.get) {
-    ownDescs[key] = {
-      ...desc,
-      get: createFuncWrapper(desc.get),
-      set: undefined
-    }
+    desc.get = createFuncWrapper(desc.get);
+    desc.set = undefined;
   }
 }
 if (noEval) {
