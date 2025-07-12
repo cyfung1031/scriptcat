@@ -151,6 +151,7 @@ describe("this", () => {
   it("onload", async () => {
     scriptRes2.code = `onload = ()=>{};return onload;`;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    global.onload = null;
     console.log('378800', global.onload);
     expect(global.onload).toBeNull();
     console.log('378801', sandboxExec.scriptFunc);
@@ -163,6 +164,7 @@ describe("this", () => {
   it("this.onload", async () => {
     scriptRes2.code = `this.onload = () => "ok"; return this.onload;`;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    global.onload = null;
     console.log('378900', global.onload);
     expect(global.onload).toBeNull();
     console.log('378901', sandboxExec.scriptFunc);
