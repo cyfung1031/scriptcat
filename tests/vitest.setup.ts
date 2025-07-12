@@ -2,6 +2,8 @@ import chromeMock from "@Packages/chrome-extension-mock";
 
 chromeMock.init();
 
+const isPrimitive = (x: any) => x !== Object(x);
+
 if (!("onanimationstart" in global)) {
     // Define or mock the global handler
     let val: any = null;
@@ -9,6 +11,7 @@ if (!("onanimationstart" in global)) {
         configurable: true,
         enumerable: true,
         set(newVal) {
+            if (isPrimitive(newVal)) newVal = null;
             val = newVal;
         },
         get() {
@@ -16,3 +19,23 @@ if (!("onanimationstart" in global)) {
         }
     });
 }
+
+//@ts-ignore
+delete global.onload;
+
+if (!("onload" in global)) {
+    // Define or mock the global handler
+    let val: any = null;
+    Object.defineProperty(global, "onload", {
+        configurable: true,
+        enumerable: true,
+        set(newVal) {
+            if (isPrimitive(newVal)) newVal = null;
+            val = newVal;
+        },
+        get() {
+            return val;
+        }
+    });
+}
+
