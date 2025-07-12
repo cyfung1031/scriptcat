@@ -109,7 +109,6 @@ export const unscopables: { [key: string]: boolean } = {
 const descsCache:Set<string | symbol> = new Set(["eval","window", "self", "globalThis", "top", "parent"]);
 
 // 复制原有的,防止被前端网页复写
-const copy = (o:any)=> Object.create(Object.getPrototypeOf(o), Object.getOwnPropertyDescriptors(o));
 
 const createEventProp = (eventName:string)=>{
   let registered:EventListenerOrEventListenerObject | null = null;
@@ -194,33 +193,7 @@ getAllPropertyDescriptors(global, ([key, desc]) => {
 });
 descsCache.clear();
 
-const createFuncWrapper = (f: () => any) => {
-  return function (this: any) {
-    const ret = f.call(global);
-    if (ret === global) return this;
-    return ret;
-  }
-}
-
 const ownDescs = Object.getOwnPropertyDescriptors(global);
-for (const key of ["window", "self", "globalThis", "top", "parent"]) {
-  const desc = ownDescs[key];
-  if(desc?.value && key === 'globalThis'){
-    desc.get = function () { return this };
-    desc.set = undefined;
-    delete desc.writable;
-    delete desc.value;
-  } else if (desc?.get) {
-    desc.get = createFuncWrapper(desc.get);
-    desc.set = undefined;
-  }
-}
-if (noEval) {
-  if (ownDescs?.eval?.value) {
-    ownDescs.eval.value = undefined;
-  }
-}
-
 
 const initCopy = Object.create(Object.getPrototypeOf(global), {
   ...ownDescs,
@@ -264,7 +237,51 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   // let withContext: Context | undefined | { [key: string]: any } = undefined;
   // 為避免做成混亂。 ScriptCat腳本中 self, globalThis, parent 為固定值不能修改
 
-  const myCopy = copy(initCopy);
+
+  const ownDescs = Object.getOwnPropertyDescriptors(initCopy);
+
+  let myCopy: typeof initCopy | undefined = undefined;
+
+  const createFuncWrapper = (f: () => any) => {
+    return function (this: any) {
+      const ret = f.call(global);
+      if (ret === global) return myCopy;
+      return ret;
+    }
+  }
+
+  for (const key of ["window", "self", "globalThis", "top", "parent"]) {
+    const desc = ownDescs[key];
+    if (desc?.value === global) {
+      desc.get = function () { return myCopy };
+      desc.set = undefined;
+      delete desc.writable;
+      delete desc.value;
+    } else if (desc?.get) {
+      desc.get = createFuncWrapper(desc.get);
+      desc.set = undefined;
+    }
+  }
+  if (noEval) {
+    if (ownDescs?.eval?.value) {
+      ownDescs.eval.value = undefined;
+    }
+  }
+
+  ownDescs.$ = {
+    enumerable: false,
+    configurable: true,
+    get() {
+      delete (<any>this).$;
+      return new Proxy(<Context>myCopy, {
+        has() {
+          return true;
+        }
+      });
+    }
+  }
+
+  myCopy = Object.create(Object.getPrototypeOf(initCopy), ownDescs);
 
   const mUnscopables: {
     [key: string | number | symbol]: any;
@@ -273,18 +290,6 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     ...unscopables
   };
 
-  Object.defineProperty(myCopy, "$", {
-    enumerable: false,
-    configurable: true,
-    get(){
-      delete this.$;
-      return new Proxy(<Context>myCopy, {
-        has() {
-          return true;
-        }
-      });
-    }
-  });
 
   Object.assign(myCopy, {
     [Symbol.unscopables]: mUnscopables
@@ -310,9 +315,6 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     // 目前 TM 只支援 null. ScriptCat預設null？
     exposedWindow.onurlchange = null;
   }
-
-
-
 
   console.log(exposedWindow)
 
