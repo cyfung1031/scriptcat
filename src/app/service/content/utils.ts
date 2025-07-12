@@ -90,7 +90,11 @@ export const unscopables: { [key: string]: boolean } = {
   // NodeFilter: true,
   // RegExp: true,
   "this": true,
-  "arguments": true
+  "arguments": true,
+  "await": true,
+  "define": true,
+  "module": true,
+  "exports": true
 };
 
 // 在 CacheSet 加入的propKeys将会在myCopy实装阶段时设置
@@ -255,15 +259,33 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     get() {
       delete (<any>this).$;
       return new Proxy(<Context>myCopy, {
-        get(target, prop) {
+        get(target, prop, receiver) {
           // 读一个没有定义的变数时报错
-          if (!Reflect.has(target, prop)) throw new ReferenceError(`${String(prop)} is not defined.`);
-          return Reflect.get(target, prop);
+          if(Reflect.has(target, prop)){
+            return Reflect.get(target, prop, receiver);
+          }
+          throw new ReferenceError(`${String(prop)} is not defined.`);
         },
-        has() {
+        has(target, key) {
           // 全拦截，避免 userscript 改变 global window 变量 （包括删除及生成）
           // 强制针对所有"属性"为[[HasProperty]]，即 `* in $` 总是 true
-          return true;
+          // return true;
+
+          return Reflect.has(target, key);
+        },
+        set(target, key, value, receiver) {
+          // if (Reflect.has(target, key)) {
+            // Allow updating existing properties in the context
+            return Reflect.set(target, key, value, receiver);
+          // }
+          // Prevent creating new properties
+          // throw new ReferenceError(`Cannot create variable ${String(key)} in sandbox`);
+        },
+        deleteProperty(target, key) {
+          if (Reflect.has(target, key)) {
+            return Reflect.deleteProperty(target, key);
+          }
+          return false;
         }
       });
     }
