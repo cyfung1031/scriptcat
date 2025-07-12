@@ -221,12 +221,12 @@ const getDescs = (global: GMWorldContext) => {
   return ret;
 }
 
-getDescs(global);
+getDescs(Window.prototype);
 
 // 拦截上下文
 export function createProxyContext<const Context extends GMWorldContext>(mGlobal: Context, context: any): Context {
 
-  const { myDescs, anDescs } = getDescs(mGlobal);
+  const { myDescs, anDescs } = getDescs(Window.prototype);
 
 
   // eslint-disable-next-line prefer-const
