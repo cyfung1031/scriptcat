@@ -255,6 +255,11 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     get() {
       delete (<any>this).$;
       return new Proxy(<Context>myCopy, {
+        get(target, prop) {
+          // 读一个没有定义的变数时报错
+          if (!Reflect.has(target, prop)) throw new ReferenceError(`${String(prop)} is not defined.`);
+          return Reflect.get(target, prop);
+        },
         has() {
           // 全拦截，避免 userscript 改变 global window 变量 （包括删除及生成）
           // 强制针对所有"属性"为[[HasProperty]]，即 `* in $` 总是 true
