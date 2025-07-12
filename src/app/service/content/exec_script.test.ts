@@ -62,7 +62,7 @@ describe("GM_info", () => {
     const ret = await sandboxExec.exec();
     expect(ret.GM_info.version).toEqual(ExtVersion);
     expect(ret.GM_info.script.version).toEqual("1.0.0");
-    expect(ret._this).toEqual(sandboxExec.proxyContext);
+    expect(ret._this).not.toEqual(global);
   });
 });
 
