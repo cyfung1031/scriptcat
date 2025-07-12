@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { init, createProxyContext } from "./utils";
+import { createProxyContext } from "./utils";
 
 describe("proxy context", () => {
   const context: any = {};
@@ -13,8 +13,6 @@ describe("proxy context", () => {
     removeEventListener: () => {},
     location: "ok",
   };
-  init.set("onload", true);
-  init.set("location", true);
   const _this = createProxyContext(global, context);
 
   it("set contenxt", () => {

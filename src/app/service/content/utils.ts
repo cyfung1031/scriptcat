@@ -84,110 +84,10 @@ const getAllPropertyDescriptors = (
 };
 
 
-// 在 CacheSet 加入的propKeys将会在myCopy实装阶段时设置
-const descsCache: Set<string | symbol> = new Set(["eval", "window", "self", "globalThis", "top", "parent"]);
-
-const myDescs: any = {};
-
-// const keysMap:any = new Map();
-
 
 const isEventListenerFunc = (x: any) => typeof x === 'function';
 const isPrimitive = (x: any) => x !== Object(x);
 
-const createEventProp = (key: string) => {
-  // 赋值变量
-  let registered: EventListenerOrEventListenerObject | null = null;
-  return {
-    get() {
-      return registered;
-    },
-    set(newVal: EventListenerOrEventListenerObject | any) {
-      if (newVal !== registered) {
-
-        const eventName = (<string>key).slice(2);
-        if (isEventListenerFunc(registered)) {
-          // 停止当前事件监听
-          global.removeEventListener(eventName, registered!);
-        }
-        if (isPrimitive(newVal)) {
-          // 按照实际操作，primitive types (number, string, boolean, ...) 会被转换成 null
-          newVal = null;
-        } else if (isEventListenerFunc(newVal)) {
-          // 非primitive types 的话，只考虑 function type
-          // Symbol, Object (包括 EventListenerObject ) 等只会保存而不进行事件监听
-          global.addEventListener(eventName, newVal);
-        }
-        registered = newVal;
-      }
-    }
-  }
-}
-
-const ownDescs: any = Object.getOwnPropertyDescriptors(global);
-const anDescs = new Set();
-
-// 包含物件本身及所有父类(不包含Object)的PropertyDescriptor
-// 主要是找出哪些 function值， setter/getter 需要替换 global window
-getAllPropertyDescriptors(global, ([key, desc]) => {
-  if (ownDescs[key] !== desc) {
-    anDescs.add(desc);
-  }
-  if (!desc || descsCache.has(key) || typeof key !== 'string') return;
-  descsCache.add(key);
-
-  if (desc.writable) {
-    // 属性 value
-
-    const value = desc.value;
-
-    // 替换 function 的 this 为 实际的 global window
-    // 例：父类的 addEventListener
-    if (typeof value === "function" && !value.prototype) {
-      const boundValue = value.bind(global);
-      myDescs[key] = {
-        ...desc,
-        value: boundValue
-      }
-    } else {
-      myDescs[key] = {
-        ...desc,
-        value
-      }
-    }
-
-    // keysMap.set(key, 1);
-
-  } else {
-
-    const p = desc.configurable && desc.get && desc.set && desc.enumerable && key.startsWith('on');
-    const wr = desc.get || desc.set;
-    // let k = 2;
-    // if (p) k |= 4;
-    // if (desc.get) k |= 8;
-    // if (desc.set) k |= 16;
-    // keysMap.set(key, k);
-
-    if (p) {
-
-      const eventSetterGetter = createEventProp(key);
-      myDescs[key] = {
-        ...desc,
-        ...eventSetterGetter
-      };
-
-    } else if (wr) {
-      myDescs[key] = {
-        ...desc,
-        get: desc?.get?.bind(global),
-        set: desc?.set?.bind(global),
-      };
-
-    }
-  }
-
-});
-descsCache.clear(); // 内存释放
 
 
 
@@ -197,15 +97,137 @@ type GMWorldContext = ((typeof globalThis) & ({
   [key: string | number | symbol]: any;
 }));
 
-myDescs[Symbol.toStringTag] = {
-  configurable: true,
-  enumerable: false,
-  value: "Window",
-  writable: false,
+
+const globalMap = new Map<GMWorldContext, any>();
+
+const getDescs = (global: GMWorldContext) => {
+
+
+  const createEventProp = (key: string) => {
+    // 赋值变量
+    let registered: EventListenerOrEventListenerObject | null = null;
+    return {
+      get() {
+        return registered;
+      },
+      set(newVal: EventListenerOrEventListenerObject | any) {
+        if (newVal !== registered) {
+
+          const eventName = (<string>key).slice(2);
+          if (isEventListenerFunc(registered)) {
+            // 停止当前事件监听
+            global.removeEventListener(eventName, registered!);
+          }
+          if (isPrimitive(newVal)) {
+            // 按照实际操作，primitive types (number, string, boolean, ...) 会被转换成 null
+            newVal = null;
+          } else if (isEventListenerFunc(newVal)) {
+            // 非primitive types 的话，只考虑 function type
+            // Symbol, Object (包括 EventListenerObject ) 等只会保存而不进行事件监听
+            global.addEventListener(eventName, newVal);
+          }
+          registered = newVal;
+        }
+      }
+    }
+  }
+
+  let ret = globalMap.get(global);
+
+  if (ret) return ret;
+
+  // 在 CacheSet 加入的propKeys将会在myCopy实装阶段时设置
+  const descsCache: Set<string | symbol> = new Set(["eval", "window", "self", "globalThis", "top", "parent"]);
+
+  const myDescs: any = {};
+
+  const ownDescs: any = Object.getOwnPropertyDescriptors(global);
+  const anDescs = new Set();
+
+  // 包含物件本身及所有父类(不包含Object)的PropertyDescriptor
+  // 主要是找出哪些 function值， setter/getter 需要替换 global window
+  getAllPropertyDescriptors(global, ([key, desc]) => {
+    if (ownDescs[key] !== desc) {
+      anDescs.add(desc);
+    }
+    if (!desc || descsCache.has(key) || typeof key !== 'string') return;
+    descsCache.add(key);
+
+    if (desc.writable) {
+      // 属性 value
+
+      const value = desc.value;
+
+      // 替换 function 的 this 为 实际的 global window
+      // 例：父类的 addEventListener
+      if (typeof value === "function" && !value.prototype) {
+        const boundValue = value.bind(global);
+        myDescs[key] = {
+          ...desc,
+          value: boundValue
+        }
+      } else {
+        myDescs[key] = {
+          ...desc,
+          value
+        }
+      }
+
+      // keysMap.set(key, 1);
+
+    } else {
+
+      const p = desc.configurable && desc.get && desc.set && desc.enumerable && key.startsWith('on');
+      const wr = desc.get || desc.set;
+      // let k = 2;
+      // if (p) k |= 4;
+      // if (desc.get) k |= 8;
+      // if (desc.set) k |= 16;
+      // keysMap.set(key, k);
+
+      if (p) {
+
+        const eventSetterGetter = createEventProp(key);
+        myDescs[key] = {
+          ...desc,
+          ...eventSetterGetter
+        };
+
+      } else if (wr) {
+        myDescs[key] = {
+          ...desc,
+          get: desc?.get?.bind(global),
+          set: desc?.set?.bind(global),
+        };
+
+      }
+    }
+
+  });
+  descsCache.clear(); // 内存释放
+
+  myDescs[Symbol.toStringTag] = {
+    configurable: true,
+    enumerable: false,
+    value: "Window",
+    writable: false,
+  }
+
+  ret = {
+    myDescs, anDescs
+  }
+  globalMap.set(global, ret);
+
+  return ret;
 }
 
+getDescs(global);
+
 // 拦截上下文
-export function createProxyContext<const Context extends GMWorldContext>(global: Context, context: any): Context {
+export function createProxyContext<const Context extends GMWorldContext>(mGlobal: Context, context: any): Context {
+
+  const { myDescs, anDescs } = getDescs(mGlobal);
+
 
   // eslint-disable-next-line prefer-const
   let exposedProxy: any;
@@ -220,14 +242,14 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
     configurable: false,
     enumerable: true,
     get() {
-      return global.top === global ? exposedProxy : global.top;
+      return mGlobal.top === mGlobal ? exposedProxy : mGlobal.top;
     }
   }
   const parentDesc = {
     configurable: false,
     enumerable: true,
     get() {
-      return global.parent === global ? exposedProxy : global.parent;
+      return mGlobal.parent === mGlobal ? exposedProxy : mGlobal.parent;
     }
   }
 
@@ -245,7 +267,7 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
   const exposedObject: Context = <Context>myObject;
   // 处理某些特殊的属性
   // 后台脚本要不要考虑不能使用eval?
-  exposedObject.eval = global.eval;
+  exposedObject.eval = mGlobal.eval;
   // exposedObject.define = undefined;
   // 把 GM Api (或其他全域API) 复製到 exposedObject
   for (const key of Object.keys(context)) {
