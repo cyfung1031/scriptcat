@@ -260,18 +260,18 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
       delete (<any>this).$;
       return new Proxy(<Context>myCopy, {
         get(target, prop, receiver) {
-          // 读一个没有定义的变数时报错
+          // 由於Context全拦截，我們沒有方法判斷這個get是 typeof xxx 還是 xxx
+          // (不拦截的話會觸發全域變量存取讀寫)
+          // 因此總是傳回 undefined 而不報錯
           if(Reflect.has(target, prop)){
             return Reflect.get(target, prop, receiver);
           }
-          throw new ReferenceError(`${String(prop)} is not defined.`);
+          // throw new ReferenceError(`${String(prop)} is not defined.`);
+          return undefined;
         },
-        has(target, key) {
+        has(_target, _key) {
           // 全拦截，避免 userscript 改变 global window 变量 （包括删除及生成）
           // 强制针对所有"属性"为[[HasProperty]]，即 `* in $` 总是 true
-          // return true;
-
-          // return Reflect.has(target, key);
           return true;
         },
         set(target, key, value, receiver) {

@@ -155,18 +155,18 @@ describe("this", () => {
     const ret = await sandboxExec.exec();
     expect(ret).toEqual("undefined");
   });
-  it("undefined variable in global", async () => {
-    scriptRes2.code = `return testVar;`;
-    sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
-    // 在沙盒中访问未定义的变量会抛出错误
-    try {
-      await sandboxExec.exec();
-      // 如果没有抛出错误，测试应该失败
-      expect.fail("Expected an error to be thrown when accessing undefined variable");
-    } catch (e: any) {
-      expect(e.message).toContain("testVar is not defined");
-    }
-  });
+  // it("undefined variable in global", async () => {
+  //   scriptRes2.code = `return testVar;`;
+  //   sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+  //   // 在沙盒中访问未定义的变量会抛出错误
+  //   try {
+  //     await sandboxExec.exec();
+  //     // 如果没有抛出错误，测试应该失败
+  //     expect.fail("Expected an error to be thrown when accessing undefined variable");
+  //   } catch (e: any) {
+  //     expect(e.message).toContain("testVar is not defined");
+  //   }
+  // });
 });
 
 describe("none this", () => {
