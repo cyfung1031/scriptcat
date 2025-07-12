@@ -49,6 +49,8 @@ const sandboxExec = new ExecScript(scriptRes2, undefined, undefined, undefined, 
 
 describe("GM_info", () => {
   it("none", async () => {
+    expect(noneExec.sandboxContext).toBeUndefined();
+    expect(noneExec.named).not.toBeUndefined();
     scriptRes.code = "return {_this:this,GM_info};";
     noneExec.scriptFunc = compileScript(compileScriptCode(scriptRes));
     const ret = await noneExec.exec();
@@ -57,6 +59,8 @@ describe("GM_info", () => {
     expect(ret._this).toEqual(global);
   });
   it("sandbox", async () => {
+    expect(sandboxExec.sandboxContext).not.toBeUndefined();
+    expect(sandboxExec.named).toBeUndefined();
     scriptRes2.code = "return {_this:this,GM_info};";
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
     const ret = await sandboxExec.exec();

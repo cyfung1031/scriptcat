@@ -61,6 +61,9 @@ describe("proxy context", () => {
 // 只允许访问onxxxxx
 describe("window", () => {
   const _this = createProxyContext<{ [key: string]: any} & any>({ onanimationstart: null }, {});
+  console.log(_this);
+  console.log('onload' in _this);
+  console.log('onanimationstart' in _this);
   it("window", () => {
     expect(_this.onanimationstart).toBeNull();
   });
@@ -82,6 +85,7 @@ describe("兼容问题", () => {
 });
 
 describe("Symbol", () => {
+  (<any>global)[Symbol.toStringTag] = "Window";
   const _this = createProxyContext<{ [key: string]: any } & any>({}, {});
   // 允许往global写入Symbol属性,影响内容: https://bbs.tampermonkey.net.cn/thread-5509-1-1.html
   it("Symbol", () => {
