@@ -155,6 +155,12 @@ describe("this", () => {
     const ret = await sandboxExec.exec();
     expect(ret).toEqual("undefined");
   });
+  // 不預期腳本或引用庫會直接呼叫沒定義變數然後報錯
+  // 一般情況都是採用typeof xxxx 來判斷存在
+  // 而不是 try{ ... }catch(e){...} 這樣判斷存在
+  // 為了沙盒安全，只能不報錯處理
+  // 用戶開發時會使用ScriptCat內置的 monaco editor ，自動檢查未定義名稱。因此編程不會發生問題
+  // ------------------------------------------------------------------------------------------------------------
   // it("undefined variable in global", async () => {
   //   scriptRes2.code = `return testVar;`;
   //   sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
@@ -167,6 +173,7 @@ describe("this", () => {
   //     expect(e.message).toContain("testVar is not defined");
   //   }
   // });
+  // ------------------------------------------------------------------------------------------------------------
 });
 
 describe("none this", () => {

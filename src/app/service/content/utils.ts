@@ -191,7 +191,7 @@ descsCache.clear(); // 内存释放
 // initCopy: 完全继承Window.prototype 及 自定义 OwnPropertyDescriptor
 // OwnPropertyDescriptor定义 为 原OwnPropertyDescriptor定义 (DragEvent, MouseEvent, RegExp, EventTarget, JSON等)
 //  + 覆盖定义 (document, location, setTimeout, setInterval, addEventListener 等)
-const initCopy = Object.create(Object.getPrototypeOf(global), {
+export const initCopy = Object.create(Object.getPrototypeOf(global), {
   ...ownDescs,
   ...overridedDescs
 });

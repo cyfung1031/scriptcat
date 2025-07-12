@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { init, createProxyContext } from "./utils";
+import { initCopy, createProxyContext } from "./utils";
 
 describe("proxy context", () => {
   const context: any = {};
@@ -13,8 +13,8 @@ describe("proxy context", () => {
     removeEventListener: () => {},
     location: "ok",
   };
-  init.set("onload", true);
-  init.set("location", true);
+  initCopy.onload = null;
+  initCopy.location = "ok";
   const _this = createProxyContext(global, context);
 
   it("set contenxt", () => {
@@ -24,8 +24,8 @@ describe("proxy context", () => {
   });
 
   it("set window null", () => {
-    _this["onload"] = "ok";
-    expect(_this["onload"]).toEqual("ok");
+    _this["onload"] = function ok(){};
+    expect(_this["onload"]?.name).toEqual("ok");
     expect(global["onload"]).toEqual(null);
     _this["onload"] = undefined;
     expect(_this["onload"]).toEqual(undefined);
@@ -46,7 +46,11 @@ describe("proxy context", () => {
   });
 
   it("禁止修改window", () => {
-    expect(() => (_this["window"] = "ok")).toThrow();
+    expect(() => {
+      const before = _this["window"];
+      _this["window"] = "ok";
+      if (before !== _this["window"]) throw new Error('err');
+    }).toThrow();
   });
 
   it("访问location", () => {
@@ -56,14 +60,14 @@ describe("proxy context", () => {
 
 // 只允许访问onxxxxx
 describe("window", () => {
-  const _this = createProxyContext({ onanimationstart: null }, {});
+  const _this = createProxyContext<{ [key: string]: any} & any>({ onanimationstart: null }, {});
   it("window", () => {
     expect(_this.onanimationstart).toBeNull();
   });
 });
 
 describe("兼容问题", () => {
-  const _this = createProxyContext<{ [key: string]: any }>({}, {});
+  const _this = createProxyContext<{ [key: string]: any} & any>({}, {});
   // https://github.com/xcanwin/KeepChatGPT 环境隔离得不够干净导致的
   it("Uncaught TypeError: Illegal invocation #189", () => {
     return new Promise((resolve) => {
@@ -93,7 +97,7 @@ describe("Symbol", () => {
 
 // Object.hasOwnProperty穿透 https://github.com/scriptscat/scriptcat/issues/272
 describe("Object", () => {
-  const _this = createProxyContext<{ [key: string]: any }>({}, {});
+  const _this = createProxyContext<{ [key: string]: any} & any>({}, {});
   it("hasOwnProperty", () => {
     expect(Object.prototype.hasOwnProperty.call(_this, "test1")).toEqual(false);
     _this.test1 = "ok";
