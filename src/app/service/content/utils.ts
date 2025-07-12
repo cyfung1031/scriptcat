@@ -264,8 +264,6 @@ export function createProxyContext<const Context extends GMWorldContext>(mGlobal
 
   myObject[Symbol.unscopables] = {};
 
-  console.log(3772)
-  console.log(myObject)
 
   const exposedObject: Context = <Context>myObject;
   // 处理某些特殊的属性
@@ -292,6 +290,9 @@ export function createProxyContext<const Context extends GMWorldContext>(mGlobal
       // keysMap.set(key, 32);
     }
   }
+
+  console.log(3772)
+  console.log(myObject)
 
 
 
