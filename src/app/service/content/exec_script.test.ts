@@ -73,20 +73,13 @@ describe("GM_info", () => {
 describe("unsafeWindow", () => {
 
   it("unsafeWindow available", async () => {
-    console.log(99301)
     const ret0 = sandboxExec.sandboxContext?.unsafeWindow === global;
-    console.log(99302)
     expect(ret0).toEqual(true);
-    console.log(99303)
     scriptRes2.code = `return unsafeWindow;`;
-    console.log(99304)
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
-    console.log(99305)
     console.log(`${sandboxExec.scriptFunc}`)
     const ret = await sandboxExec.exec();
-    console.log(99306)
     expect(ret).toEqual(global);
-    console.log(99307)
   });
 
   it("sandbox", async () => {
@@ -94,13 +87,7 @@ describe("unsafeWindow", () => {
     expect(ret0).toEqual(true);
     // @ts-ignore
     global.testUnsafeWindow = "ok";
-    console.log(7737);
-    console.log(sandboxExec.sandboxContext?.unsafeWindow?.testUnsafeWindow);
-    scriptRes2.code = `
-    console.log(typeof unsafeWindow);
-    console.log(typeof unsafeWindow.testUnsafeWindow);
-    return unsafeWindow.testUnsafeWindow;
-    `;
+    scriptRes2.code = `return unsafeWindow.testUnsafeWindow;`;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
     const ret = await sandboxExec.exec();
     expect(ret).toEqual("ok");
@@ -164,7 +151,9 @@ describe("this", () => {
   it("onload", async () => {
     scriptRes2.code = `onload = ()=>{};return onload;`;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    console.log('378801', sandboxExec.scriptFunc);
     const ret = await sandboxExec.exec();
+    console.log('378802', ret);
     expect(ret).toEqual(expect.any(Function));
     // global.onload
     expect(global.onload).toBeNull();
@@ -172,7 +161,9 @@ describe("this", () => {
   it("this.onload", async () => {
     scriptRes2.code = `this.onload = () => "ok"; return this.onload;`;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    console.log('378901', sandboxExec.scriptFunc);
     const ret = await sandboxExec.exec();
+    console.log('378902', ret);
     expect(ret).toEqual(expect.any(Function));
     // global.onload
     expect(global.onload).toBeNull();

@@ -85,7 +85,7 @@ describe("兼容问题", () => {
 });
 
 describe("Symbol", () => {
-  (<any>global)[Symbol.toStringTag] = "Window";
+  const tag = (<any>global)[Symbol.toStringTag];
   const _this = createProxyContext<{ [key: string]: any } & any>({}, {});
   // 允许往global写入Symbol属性,影响内容: https://bbs.tampermonkey.net.cn/thread-5509-1-1.html
   it("Symbol", () => {
@@ -95,7 +95,7 @@ describe("Symbol", () => {
   });
   // toString.call(window)返回的是'[object Object]'而不是'[object Window]',影响内容: https://github.com/scriptscat/scriptcat/issues/260
   it("Window", () => {
-    expect(toString.call(_this)).toEqual("[object Window]");
+    expect(toString.call(_this)).toEqual(`[object ${tag}]`);
   });
 });
 
