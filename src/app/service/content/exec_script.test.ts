@@ -78,6 +78,7 @@ describe("unsafeWindow", () => {
     console.log(99304)
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
     console.log(99305)
+    console.log(`${sandboxExec.scriptFunc}`)
     const ret = await sandboxExec.exec();
     console.log(99306)
     expect(ret).toEqual(global);
