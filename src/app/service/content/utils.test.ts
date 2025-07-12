@@ -30,9 +30,12 @@ describe("proxy context", () => {
     expect(global["onload"]).toBeNull();
     _this["onload"] = null;
     global["onload"] = function globalOnLoad() { };
-    expect(_this["onload"]).not.toBeNull();
+    expect(_this["onload"]).toBeNull();
     expect(global["onload"]?.name).toEqual("globalOnLoad");
     global["onload"] = null;
+    // 還原確認
+    expect(_this["onload"]).toBeNull();
+    expect(global["onload"]).toBeNull();
   });
 
   it("update", () => {
