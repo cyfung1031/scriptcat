@@ -235,8 +235,9 @@ export function createProxyContext<const Context extends GMWorldContext>(mGlobal
   const windowDesc = {
     configurable: false,
     enumerable: true,
-    value: exposedProxy,
-    writable: false,
+    get(){
+      return exposedProxy;
+    }
   }
   const topDesc = {
     configurable: false,
