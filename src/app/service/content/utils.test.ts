@@ -61,10 +61,14 @@ describe("proxy context", () => {
 // 只允许访问onxxxxx
 describe("window", () => {
   const _this = createProxyContext<{ [key: string]: any} & any>({ onanimationstart: null }, {});
+  console.log("378501")
   console.log(_this);
+  console.log("378502")
   console.log('onload' in _this);
+  console.log("378503")
   console.log('onanimationstart' in _this);
-  it("window", () => {
+  console.log("378504")
+  it("onxxxxx", () => {
     expect(_this.onanimationstart).toBeNull();
   });
 });
