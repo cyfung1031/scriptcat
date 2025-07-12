@@ -91,10 +91,10 @@ export const unscopables: { [key: string]: boolean } = {
   // RegExp: true,
   "this": true,
   "arguments": true,
-  "await": true,
-  "define": true,
-  "module": true,
-  "exports": true
+  // "await": true,
+  // "define": true,
+  // "module": true,
+  // "exports": true
 };
 
 // 在 CacheSet 加入的propKeys将会在myCopy实装阶段时设置
