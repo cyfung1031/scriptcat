@@ -24,12 +24,15 @@ describe("proxy context", () => {
     expect(global["md5"]).toEqual(undefined);
   });
 
-  it("set window null", () => {
-    _this["onload"] = function ok(){};
+  it("set onload null", () => {
+    _this["onload"] = function ok() { };
     expect(_this["onload"]?.name).toEqual("ok");
-    expect(global["onload"]).toEqual(null);
-    _this["onload"] = undefined;
-    expect(_this["onload"]).toEqual(undefined);
+    expect(global["onload"]).toBeNull();
+    _this["onload"] = null;
+    global["onload"] = function globalOnLoad() { };
+    expect(_this["onload"]).not.toBeNull();
+    expect(global["onload"]?.name).toEqual("globalOnLoad");
+    global["onload"] = null;
   });
 
   it("update", () => {
