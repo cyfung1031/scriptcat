@@ -67,6 +67,16 @@ describe("GM_info", () => {
 });
 
 describe("unsafeWindow", () => {
+
+  it("unsafeWindow available", async () => {
+    const ret0 = sandboxExec.sandboxContext?.unsafeWindow === global;
+    expect(ret0).toEqual(true);
+    scriptRes2.code = `return unsafeWindow;`;
+    sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
+    const ret = await sandboxExec.exec();
+    expect(ret).toEqual(global);
+  });
+
   it("sandbox", async () => {
     const ret0 = sandboxExec.sandboxContext?.unsafeWindow === global;
     expect(ret0).toEqual(true);
