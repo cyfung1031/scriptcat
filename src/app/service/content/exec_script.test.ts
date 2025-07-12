@@ -72,7 +72,13 @@ describe("unsafeWindow", () => {
     expect(ret0).toEqual(true);
     // @ts-ignore
     global.testUnsafeWindow = "ok";
-    scriptRes2.code = "return unsafeWindow.testUnsafeWindow";
+    console.log(7737);
+    console.log(sandboxExec.sandboxContext?.unsafeWindow?.testUnsafeWindow);
+    scriptRes2.code = `
+    console.log(typeof unsafeWindow);
+    console.log(typeof unsafeWindow.testUnsafeWindow);
+    return unsafeWindow.testUnsafeWindow;
+    `;
     sandboxExec.scriptFunc = compileScript(compileScriptCode(scriptRes2));
     const ret = await sandboxExec.exec();
     expect(ret).toEqual("ok");
