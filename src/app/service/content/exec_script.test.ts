@@ -68,6 +68,8 @@ describe("GM_info", () => {
 
 describe("unsafeWindow", () => {
   it("sandbox", async () => {
+    const ret0 = sandboxExec.sandboxContext?.unsafeWindow === global;
+    expect(ret0).toEqual(true);
     // @ts-ignore
     global.testUnsafeWindow = "ok";
     scriptRes2.code = "return unsafeWindow.testUnsafeWindow";
