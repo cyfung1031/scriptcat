@@ -271,7 +271,8 @@ export function createProxyContext<const Context extends GMWorldContext>(global:
           // 强制针对所有"属性"为[[HasProperty]]，即 `* in $` 总是 true
           // return true;
 
-          return Reflect.has(target, key);
+          // return Reflect.has(target, key);
+          return true;
         },
         set(target, key, value, receiver) {
           // if (Reflect.has(target, key)) {
