@@ -197,16 +197,14 @@ function LoggerPage() {
                 <Space>
                   {querys.map((query, index) => (
                     <LogLabel
-                      key={query.key + query.value}
+                      key={`${query.key}_${query.value}_${index}`}
                       value={query}
                       labels={labels}
                       onChange={(v) => {
-                        querys[index] = v;
-                        setQuerys([...querys]);
+                        setQuerys(prev => prev.map((query, i) => i === index ? v : query));
                       }}
                       onClose={() => {
-                        querys.splice(index, 1);
-                        setQuerys([...querys]);
+                        setQuerys(prev => prev.filter((_query, i) => i !== index));
                       }}
                     />
                   ))}
@@ -305,9 +303,9 @@ function LoggerPage() {
               }}
               size="small"
               dataSource={queryLogs}
-              render={(item: Logger, index) => (
+              render={(item: Logger) => (
                 <List.Item
-                  key={index}
+                  key={item.id}
                   style={{
                     background:
                        

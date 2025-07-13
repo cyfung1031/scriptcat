@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Button,
   Collapse,
@@ -90,14 +90,11 @@ const ScriptMenuList: React.FC<{
   useEffect(() => {
     // 监听脚本运行状态
     const unsub = subscribeScriptRunStatus(messageQueue, ({ uuid, runStatus }) => {
-      setList((prev) => {
-        const newList = [...prev];
-        const index = newList.findIndex((item) => item.uuid === uuid);
-        if (index !== -1) {
-          newList[index].runStatus = runStatus;
-        }
-        return newList;
-      });
+      setList((prevList) =>
+        prevList.map((item) =>
+          item.uuid === uuid ? { ...item, runStatus } : item
+        )
+      );
     });
     // 获取配置
     systemConfig.getMenuExpandNum().then((num) => {
@@ -108,60 +105,114 @@ const ScriptMenuList: React.FC<{
     };
   }, []);
 
+  const handleEnableChange = useCallback((item: ScriptMenu, checked: boolean) => {
+    scriptClient
+      .enable(item.uuid, checked)
+      .then(() => {
+        setList((prevList) =>
+          prevList.map((item1) =>
+            item1 === item ? { ...item1, enable: checked } : item1
+          )
+        );
+      })
+      .catch((err) => {
+        Message.error(err);
+      });
+  }, []);
+
+
+  const handleRunScript = useCallback((item: ScriptMenu) => {
+    if (item.runStatus !== SCRIPT_RUN_STATUS_RUNNING) {
+      runtimeClient.runScript(item.uuid);
+    } else {
+      runtimeClient.stopScript(item.uuid);
+    }
+  }, []);
+
+  const handleEditScript = useCallback((uuid: string) => {
+    window.open(`/src/options.html#/script/editor/${uuid}`, "_blank");
+    window.close();
+  }, []);
+
+  const handleExcludeUrl = useCallback((item: ScriptMenu, urlHost: string) => {
+    scriptClient.excludeUrl(item.uuid, `*://${urlHost}/*`, isExclude(item, urlHost)).finally(() => {
+      window.close();
+    });
+  }, []);
+
+  const handleDeleteScript = useCallback((uuid: string) => {
+    setList((prevList) => prevList.filter((i) => i.uuid !== uuid));
+    scriptClient.delete(uuid).catch((e) => {
+      Message.error(`{t('delete_failed')}: ${e}`);
+    });
+  }, []);
+
+  const handleExpandMenu = useCallback((index: number) => {
+    setExpandMenuIndex((prev) => ({
+      ...prev,
+      [index]: !prev[index],
+    }));
+  }, []);
+
+  const handleOpenUserConfig = useCallback((uuid: string) => {
+    window.open(`/src/options.html#/?userConfig=${uuid}`, "_blank");
+    window.close();
+  }, []);
+
+  const CollapseHeader = React.memo(({ item, onEnableChange }: {
+    item: ScriptMenu;
+    onEnableChange: (item: ScriptMenu, checked: boolean) => void;
+  }) => {
+
+    return (
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+        title={
+          item.enable
+            ? item.runNumByIframe
+              ? t("script_total_runs", {
+                runNum: item.runNum,
+                runNumByIframe: item.runNumByIframe,
+              })!
+              : t("script_total_runs_single", { runNum: item.runNum })!
+            : t("script_disabled")!
+        }
+      >
+        <Space>
+          <Switch
+            size="small"
+            checked={item.enable}
+            onChange={(checked) => onEnableChange(item, checked)}
+          />
+          <span
+            style={{
+              display: "block",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: item.runNum === 0 ? "rgb(var(--gray-5))" : "",
+              lineHeight: "20px",
+            }}
+          >
+            <ScriptIcons script={item} size={20} />
+            {i18nName(item)}
+          </span>
+        </Space>
+      </div>
+    )
+
+  });
+  CollapseHeader.displayName = 'CollapseHeader';
+
   return (
     <>
       {list.length === 0 && <Empty description={t("no_data")} />}
       {list.map((item, index) => (
         <Collapse bordered={false} expandIconPosition="right" key={item.uuid}>
           <CollapseItem
-            header={
-              <div
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-                title={
-                  item.enable
-                    ? item.runNumByIframe
-                      ? t("script_total_runs", {
-                          runNum: item.runNum,
-                          runNumByIframe: item.runNumByIframe,
-                        })!
-                      : t("script_total_runs_single", { runNum: item.runNum })!
-                    : t("script_disabled")!
-                }
-              >
-                <Space>
-                  <Switch
-                    size="small"
-                    checked={item.enable}
-                    onChange={(checked) => {
-                      scriptClient
-                        .enable(item.uuid, checked)
-                        .then(() => {
-                          item.enable = checked;
-                          setList([...list]);
-                        })
-                        .catch((err) => {
-                          Message.error(err);
-                        });
-                    }}
-                  />
-                  <span
-                    style={{
-                      display: "block",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      color: item.runNum === 0 ? "rgb(var(--gray-5))" : "",
-                      lineHeight: "20px",
-                    }}
-                  >
-                    <ScriptIcons script={item} size={20} />
-                    {i18nName(item)}
-                  </span>
-                </Space>
-              </div>
-            }
+            header={<CollapseHeader item={item} onEnableChange={handleEnableChange} />}
             name={item.uuid}
             contentStyle={{ padding: "0 0 0 40px" }}
           >
@@ -171,13 +222,7 @@ const ScriptMenuList: React.FC<{
                   className="text-left"
                   type="secondary"
                   icon={item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? <RiPlayFill /> : <RiStopFill />}
-                  onClick={() => {
-                    if (item.runStatus !== SCRIPT_RUN_STATUS_RUNNING) {
-                      runtimeClient.runScript(item.uuid);
-                    } else {
-                      runtimeClient.stopScript(item.uuid);
-                    }
-                  }}
+                  onClick={() => handleRunScript(item)}
                 >
                   {item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? t("run_once") : t("stop")}
                 </Button>
@@ -186,10 +231,7 @@ const ScriptMenuList: React.FC<{
                 className="text-left"
                 type="secondary"
                 icon={<IconEdit />}
-                onClick={() => {
-                  window.open(`/src/options.html#/script/editor/${item.uuid}`, "_blank");
-                  window.close();
-                }}
+                onClick={() => handleEditScript(item.uuid)}
               >
                 {t("edit")}
               </Button>
@@ -199,11 +241,7 @@ const ScriptMenuList: React.FC<{
                   status="warning"
                   type="secondary"
                   icon={<IconMinus />}
-                  onClick={() => {
-                    scriptClient.excludeUrl(item.uuid, `*://${url.host}/*`, isExclude(item, url.host)).finally(() => {
-                      window.close();
-                    });
-                  }}
+                  onClick={() => handleExcludeUrl(item, url.host)}
                 >
                   {isExclude(item, url.host) ? t("exclude_on") : t("exclude_off")}
                   {` ${url.host} ${t("exclude_execution")}`}
@@ -212,12 +250,7 @@ const ScriptMenuList: React.FC<{
               <Popconfirm
                 title={t("confirm_delete_script")}
                 icon={<IconDelete />}
-                onOk={() => {
-                  setList(list.filter((i) => i.uuid !== item.uuid));
-                  scriptClient.delete(item.uuid).catch((e) => {
-                    Message.error(`{t('delete_failed')}: ${e}`);
-                  });
-                }}
+                onOk={() => handleDeleteScript(item.uuid)}
               >
                 <Button className="text-left" status="danger" type="secondary" icon={<IconDelete />}>
                   {t("delete")}
@@ -242,12 +275,7 @@ const ScriptMenuList: React.FC<{
                 key="expand"
                 type="secondary"
                 icon={expandMenuIndex[index] ? <IconCaretUp /> : <IconCaretDown />}
-                onClick={() => {
-                  setExpandMenuIndex({
-                    ...expandMenuIndex,
-                    [index]: !expandMenuIndex[index],
-                  });
-                }}
+                onClick={() => handleExpandMenu(index)}
               >
                 {expandMenuIndex[index] ? t("collapse") : t("expand")}
               </Button>
@@ -258,10 +286,7 @@ const ScriptMenuList: React.FC<{
                 key="config"
                 type="secondary"
                 icon={<IconSettings />}
-                onClick={() => {
-                  window.open(`/src/options.html#/?userConfig=${item.uuid}`, "_blank");
-                  window.close();
-                }}
+                onClick={() => handleOpenUserConfig(item.uuid)}
               >
                 {t("user_config")}
               </Button>
@@ -286,7 +311,7 @@ type MenuItemProps = {
   uuid: string;
 };
 
-const MenuItem: React.FC<MenuItemProps> = ({ menu, uuid }) => {
+const MenuItem = React.memo(({ menu, uuid }: MenuItemProps) => {
   const initialValue = menu.options?.inputDefaultValue;
 
   const InputMenu = (() => {
@@ -339,6 +364,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ menu, uuid }) => {
       )}
     </Form>
   );
-};
+});
+MenuItem.displayName = 'MenuItem';
 
 export default ScriptMenuList;

@@ -18,6 +18,15 @@ function SubscribeList() {
   const inputRef = useRef<RefInputType>(null);
   const { t } = useTranslation(); // 使用 useTranslation hook
 
+  const setListEntry = async (index: number, obj: any) => {
+    setList(prev => prev.map((item, i) =>
+      i === index ? {
+        ...item,
+        ...obj
+      } : item
+    ));
+  }
+
   useEffect(() => {
     const dao = new SubscribeDAO();
     dao.all().then((subscribes) => {
@@ -64,19 +73,23 @@ function SubscribeList() {
             loading={item.loading}
             disabled={item.loading}
             onChange={(checked) => {
-              list[index].loading = true;
-              setList([...list]);
+              setListEntry(index, { loading: true });
+              let statusChange = false;
               subscribeClient
                 .enable(item.url, checked)
                 .then(() => {
-                  list[index].status = checked ? SUBSCRIBE_STATUS_ENABLE : SUBSCRIBE_STATUS_DISABLE;
+                  statusChange = true;
                 })
                 .catch((err) => {
                   Message.error(err);
                 })
                 .finally(() => {
-                  list[index].loading = false;
-                  setList([...list]);
+                  setListEntry(index, {
+                    loading: false,
+                    ...(statusChange && {
+                      status: checked ? SUBSCRIBE_STATUS_ENABLE : SUBSCRIBE_STATUS_DISABLE
+                    })
+                  });
                 });
             }}
           />
