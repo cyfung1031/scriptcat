@@ -680,7 +680,7 @@ function ScriptList() {
   SortableItemComponent.displayName = "SortableItem";
 
 
-  const SortableWrapper = React.forwardRef((props: any, ref: any) => {
+  const SortableWrapper = (props: any) => {
     return (
       <DndContext
         sensors={sensors}
@@ -700,11 +700,11 @@ function ScriptList() {
           items={scriptList.map((s) => ({ ...s, id: s.uuid }))}
           strategy={verticalListSortingStrategy}
         >
-          <tbody ref={ref} {...props} />
+          <tbody {...props} />
         </SortableContext>
       </DndContext>
     );
-  });
+  };
 
   useEffect(() => {
     setComponents({
