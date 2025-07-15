@@ -695,7 +695,7 @@ function ScriptList() {
         }}
       >
         <SortableContext
-          items={store.getState().script.scripts.map((s) => ({ ...s, id: s.uuid }))}
+          items={scriptList.map((s) => ({ ...s, id: s.uuid }))}
           strategy={verticalListSortingStrategy}
         >
           <tbody {...props} />
@@ -984,15 +984,11 @@ function ScriptList() {
           className="arco-drag-table-container"
           components={components}
           rowKey="uuid"
+          virtualized
           tableLayoutFixed
           columns={tableColumns.tableColumns}
           data={scriptList}
-          pagination={{
-            disabled: true,
-            total: scriptList.length,
-            pageSize: scriptList.length,
-            hideOnSinglePage: true,
-          }}
+          pagination={false}
           style={{
             minWidth: "1200px",
           }}
