@@ -50,6 +50,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import UserConfigPanel from "@App/pages/components/UserConfigPanel";
 import CloudScriptPlan from "@App/pages/components/CloudScriptPlan";
 import { useTranslation } from "react-i18next";
@@ -679,11 +680,12 @@ function ScriptList() {
   SortableItemComponent.displayName = "SortableItem";
 
 
-  const SortableWrapper = (props: any) => {
+  const SortableWrapper = React.forwardRef((props: any, ref: any) => {
     return (
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis]}
         onDragEnd={(event: DragEndEvent) => {
           const { active, over } = event;
           if (!over) {
@@ -698,18 +700,19 @@ function ScriptList() {
           items={scriptList.map((s) => ({ ...s, id: s.uuid }))}
           strategy={verticalListSortingStrategy}
         >
-          <tbody {...props} />
+          <tbody ref={ref} {...props} />
         </SortableContext>
       </DndContext>
     );
-  };
+  });
 
-
-  setComponents({
-    body: {
-      tbody: SortableWrapper,
-      row: SortableItemComponent,
-    },
+  useEffect(() => {
+    setComponents({
+      body: {
+        tbody: SortableWrapper,
+        row: SortableItemComponent,
+      },
+    });
   });
 
   const WidthInput = () => {
