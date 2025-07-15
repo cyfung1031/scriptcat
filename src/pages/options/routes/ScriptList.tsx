@@ -715,8 +715,10 @@ function ScriptList() {
     });
   });
 
-  const WidthInput = () => {
-    const width = definedWidths[selectColumn] === undefined ? columns[selectColumn].width : definedWidths[selectColumn];
+  const onWidthInputChanged = (val: string) => {
+    setDefinedWidths(cols => cols.map((col, i) => i === selectColumn ? parseInt(val, 10) : col));
+  };
+  const WidthInput = React.memo(({ width }: { width: number | string | undefined }) => {
     return <Input
       type={width === 0 || width === -1 ? "" : "number"}
       style={{ width: "80px" }}
@@ -728,11 +730,11 @@ function ScriptList() {
             ? t("hide")
             : width?.toString()
       }
-      onChange={(val) => {
-        setDefinedWidths(cols => cols.map((col, i) => i === selectColumn ? parseInt(val, 10) : col));
-      }}
+      onChange={onWidthInputChanged}
     />
-  }
+  }, (prev, next) => {
+    return prev.width === next.width
+  });
 
   return (
     <Card
@@ -946,7 +948,9 @@ function ScriptList() {
                   }
                   position="bl"
                 >
-                  <WidthInput />
+                  <WidthInput 
+                  width={definedWidths[selectColumn] === undefined ? columns[selectColumn].width : definedWidths[selectColumn]}
+                  />
                 </Dropdown>
                 <Button
                   type="primary"
