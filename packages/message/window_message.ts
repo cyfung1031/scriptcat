@@ -100,15 +100,19 @@ export class WindowMessage implements Message {
 
   // 发送消息 注意不进行回调的内存泄漏
   sendMessage(data: any): Promise<any> {
-    return new Promise((resolve) => {
+    return new Promise((resolve: ((value: any) => void) | null) => {
       const body: WindowMessageBody = {
         messageId: uuidv4(),
         type: "sendMessage",
         data,
       };
-      const callback = (body: WindowMessageBody) => {
-        this.EE.removeListener("response:" + body.messageId, callback);
-        resolve(body.data);
+      let callback: EventEmitter.EventListener<string | symbol, any> | null = (body: WindowMessageBody) => {
+        if (callback !== null) {
+          this.EE.removeListener("response:" + body.messageId, callback!);
+          resolve!(body.data);
+          callback = null; // 设为 null 提醒JS引擎可以GC
+          resolve = null;
+        }
       };
       this.EE.addListener("response:" + body.messageId, callback);
       this.target.postMessage(body, "*");
@@ -170,15 +174,15 @@ export class ServiceWorkerMessageSend implements MessageSend {
 
   async init() {
     if (!this.target && self.clients) {
-      const list = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
-      // 找到offscreen.html窗口
-      this.target = list.find((client) => client.url == chrome.runtime.getURL("src/offscreen.html")) as PostMessage;
       if (!this.listened) {
         this.listened = true;
         self.addEventListener("message", (e) => {
           this.messageHandle(e.data);
         });
       }
+      const list = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+      // 找到offscreen.html窗口
+      this.target = list.find((client) => client.url == chrome.runtime.getURL("src/offscreen.html")) as PostMessage;
     }
   }
 
@@ -214,9 +218,12 @@ export class ServiceWorkerMessageSend implements MessageSend {
         type: "sendMessage",
         data,
       };
-      const callback = (body: WindowMessageBody) => {
-        this.EE.removeListener("response:" + body.messageId, callback);
-        resolve(body.data);
+      let callback: EventEmitter.EventListener<string | symbol, any> | null = (body: WindowMessageBody) => {
+        if (callback !== null) {
+          this.EE.removeListener("response:" + body.messageId, callback);
+          resolve(body.data);
+          callback = null; // 设为 null 提醒JS引擎可以GC
+        }
       };
       this.EE.addListener("response:" + body.messageId, callback);
       this.target!.postMessage(body);
