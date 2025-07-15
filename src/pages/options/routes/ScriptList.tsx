@@ -640,7 +640,7 @@ function ScriptList() {
   );
 
   const SortableItemComponent = (props: any) => {
-    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props!.record.uuid });
+    const { attributes, listeners, setNodeRef, transform, transition, setActivatorNodeRef } = useSortable({ id: props!.record.uuid });
 
 
     const sortIndex = tableColumns.sortIndex;
@@ -653,6 +653,8 @@ function ScriptList() {
       transform: CSS.Transform.toString(transform),
       transition,
     };
+
+    console.log(3828, props.children, {...props})
 
 
     // 替换排序列,使其可以拖拽
@@ -669,6 +671,7 @@ function ScriptList() {
             style={{
               cursor: "move",
             }}
+            ref={setActivatorNodeRef}
             {...listeners}
           />
         </div>
