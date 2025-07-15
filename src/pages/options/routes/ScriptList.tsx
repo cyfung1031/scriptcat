@@ -596,6 +596,8 @@ function ScriptList() {
 
     const sortIndex = tableColumns.findIndex((item) => item.key === "sort");
 
+    console.log(223, sortIndex);
+
     return {
       tableColumns, sortIndex
     };
@@ -716,7 +718,7 @@ function ScriptList() {
         row: SortableItemComponent,
       },
     });
-  });
+  }, [tableColumns]);
 
   const onWidthInputChanged = (val: string) => {
     setDefinedWidths(cols => cols.map((col, i) => i === selectColumn ? parseInt(val, 10) : col));
