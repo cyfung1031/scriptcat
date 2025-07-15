@@ -645,7 +645,7 @@ function ScriptList() {
     const sortIndex = tableColumns.sortIndex;
 
     if (sortIndex === -1) {
-      return <tr {...props} />;
+      return <tr ref={setNodeRef} {...props} />;
     }
 
     const style = {
