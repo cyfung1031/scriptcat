@@ -28,7 +28,8 @@ export const createContext = (
     GM: { info: GMInfo },
     GM_info: GMInfo,
     window: {
-      onurlchange: null,
+      // onurlchange: null,
+      // window.onurlchange 未支持，而且会拖效能不能预设开啟
     },
     grantSet: new Set(),
   });
