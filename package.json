@@ -8,7 +8,7 @@
     "test": "jest --coverage",
     "lint": "eslint --ext .js,.ts,.tsx src/",
     "dev": "concurrently \"webpack --mode development --config ./webpack/webpack.dev.ts\" \"webpack --mode development --config ./webpack/webpack.inject.dev.ts\"",
-    "build": "webpack --mode production --config ./webpack/webpack.prod.ts && concurrently \"npm run build:linter\" \"npm run build:inject && npm run build:no-split\"",
+    "build": "webpack --mode production --config ./webpack/webpack.prod.ts && concurrently \"pnpm run build:linter\" \"pnpm run build:inject && pnpm run build:no-split\"",
     "build:linter": "webpack --mode production --config ./webpack/webpack.linter.ts",
     "build:inject": "webpack --mode production --config ./webpack/webpack.inject.ts",
     "build:no-split": "webpack --mode production --config ./webpack/webpack.no.split.ts",
@@ -106,5 +106,6 @@
     "webpack-bundle-analyzer": "^4.9.0",
     "webpack-cli": "^5.1.4",
     "webpack-merge": "^5.9.0"
-  }
+  },
+  "packageManager": "pnpm@10.12.4"
 }
