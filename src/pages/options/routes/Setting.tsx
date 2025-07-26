@@ -105,7 +105,7 @@ function Setting() {
   }, []);
 
   return (
-    <Space className="setting w-full h-full overflow-auto relative" direction="vertical">
+    <Space className="setting w-full h-full box-border overflow-auto relative" direction="vertical">
       {/* 基本设置 */}
       <Card title={t("general")} bordered={false}>
         <div className="flex items-center justify-between min-h-10">

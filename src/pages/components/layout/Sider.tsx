@@ -46,8 +46,8 @@ const Sider: React.FC = () => {
   return (
     <HashRouter>
       <SiderGuide ref={guideRef} />
-      <Layout.Sider className="h-full" collapsed={collapsed} width={170}>
-        <div className="flex flex-col justify-between h-full">
+      <Layout.Sider className="h-full box-border" collapsed={collapsed} width={170}>
+        <div className="flex flex-col justify-between h-full box-border">
           <Menu style={{ width: "100%" }} selectedKeys={[menuSelect]} selectable onClickMenuItem={handleMenuClick}>
             <CustomLink to="/">
               <MenuItem key="/" className="menu-script">

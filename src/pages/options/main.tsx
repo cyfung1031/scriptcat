@@ -31,7 +31,7 @@ storeSubscribe();
 
 const Root = (
   <Provider store={store}>
-    <MainLayout className="!flex-row" pageName="options">
+    <MainLayout className="absolute top-50px bottom-0 w-full !flex-row" pageName="options">
       <Sider />
     </MainLayout>
   </Provider>

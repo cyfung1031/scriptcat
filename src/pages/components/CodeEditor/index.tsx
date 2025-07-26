@@ -76,6 +76,11 @@ const CodeEditor: React.ForwardRefRenderFunction<{ editor: editor.IStandaloneCod
 
       setEditor(edit);
     }
+    const elm = div.current;
+    const diffEditor = elm.querySelector(".monaco-diff-editor");
+    if (diffEditor instanceof HTMLDivElement) {
+      diffEditor.style.flexGrow = "1";
+    }
     return () => {
       if (edit) {
         edit.dispose();
@@ -218,21 +223,7 @@ const CodeEditor: React.ForwardRefRenderFunction<{ editor: editor.IStandaloneCod
     };
   }, [id, monacoEditor, enableEslint, eslintConfig]);
 
-  return (
-    <div
-      id={id}
-      style={{
-        margin: 0,
-        padding: 0,
-        border: 0,
-        width: "100%",
-        height: "100%",
-        overflow: "hidden",
-      }}
-      className={className}
-      ref={div}
-    />
-  );
+  return <div id={id} className={className} ref={div} />;
 };
 
 export default React.forwardRef(CodeEditor);

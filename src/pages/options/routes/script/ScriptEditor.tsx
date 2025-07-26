@@ -79,7 +79,17 @@ const Editor: React.FC<{
     };
   }, [node?.editor]);
 
-  return <CodeEditor key={id} id={id} ref={ref} code={code} diffCode="" editable />;
+  return (
+    <CodeEditor
+      key={id}
+      id={id}
+      className="shrink-1 grow-1 m-0 p-0 border-0 overflow-hidden flex flex-col relative min-h-[400px]"
+      ref={ref}
+      code={code}
+      diffCode=""
+      editable
+    />
+  );
 };
 
 const WarpEditor = React.memo(Editor, (prev, next) => {
@@ -617,7 +627,7 @@ function ScriptEditor() {
 
   return (
     <div
-      className="h-full flex flex-col"
+      className="h-full box-border flex flex-col"
       style={{
         position: "relative",
         left: -10,
@@ -781,7 +791,7 @@ function ScriptEditor() {
       >
         <Col
           span={4}
-          className="h-full"
+          className="h-full box-border"
           style={{
             overflow: "scroll",
           }}
@@ -922,7 +932,7 @@ function ScriptEditor() {
               ))}
           </div>
         </Col>
-        <Col span={20} className="flex! flex-col h-full">
+        <Col span={20} className="flex! flex-col h-full box-border">
           <Tabs
             editable
             activeTab={activeTab}
@@ -1018,10 +1028,10 @@ function ScriptEditor() {
               }
               return (
                 <div
-                  className="w-full"
+                  className="w-full flex flex-col items-stretch"
                   key={`fe_${item.script.uuid}`}
                   style={{
-                    display: item.active ? "block" : "none",
+                    display: item.active ? "" : "none",
                   }}
                 >
                   <WarpEditor

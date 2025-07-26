@@ -60,7 +60,7 @@ function App() {
   const metadata = useMemo(() => (confirm && confirm.metadata && Object.keys(confirm.metadata)) || [], [confirm]);
 
   return (
-    <div className="h-full">
+    <div className="h-full box-border">
       <Space direction="vertical">
         <span className="text-2xl font-500">{confirm?.title}</span>
         {metadata.map((key) => (

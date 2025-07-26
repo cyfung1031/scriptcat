@@ -21,7 +21,7 @@ loggerCore.logger().debug("confirm page start");
 
 const Root = (
   <Provider store={store}>
-    <MainLayout className="!flex-col !px-4 box-border">
+    <MainLayout className="absolute top-50px bottom-0 w-full !flex-col !px-4 box-border">
       <App />
     </MainLayout>
   </Provider>

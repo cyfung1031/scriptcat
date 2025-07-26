@@ -156,7 +156,7 @@ const PermissionManager: React.FC<{
           </Checkbox>
         </Space>
       </Modal>
-      <div className="flex flex-row justify-between pb-2">
+      <div className="flex flex-row justify-between pb-2 box-border">
         <Typography.Title heading={6}>{t("permission_management")}</Typography.Title>
         <Space>
           <Button

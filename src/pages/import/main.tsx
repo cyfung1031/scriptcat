@@ -21,7 +21,7 @@ loggerCore.logger().debug("import page start");
 
 const Root = (
   <Provider store={store}>
-    <MainLayout className="!flex-col !p-[10px] box-border h-auto overflow-auto">
+    <MainLayout className="absolute top-50px bottom-0 w-full !flex-col !p-[10px] box-border h-auto overflow-auto">
       <App />
     </MainLayout>
   </Provider>

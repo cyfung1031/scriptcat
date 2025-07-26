@@ -233,7 +233,7 @@ const Match: React.FC<{
           }}
         />
       </Modal>
-      <div className="flex flex-row justify-between pb-2">
+      <div className="flex flex-row justify-between pb-2 box-border">
         <Typography.Title heading={6}>{t("website_match")}</Typography.Title>
         <Space>
           <Button
@@ -262,7 +262,7 @@ const Match: React.FC<{
       </div>
       <Table columns={columns} data={match} rowKey="id" pagination={false} />
       <Divider />
-      <div className="flex flex-row justify-between pb-2">
+      <div className="flex flex-row justify-between pb-2 box-border">
         <Typography.Title heading={6}>{t("website_exclude")}</Typography.Title>
         <Space>
           <Button
