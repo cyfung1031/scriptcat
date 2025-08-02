@@ -13,7 +13,7 @@ import { checkSilenceUpdate, InfoNotification } from "@App/pkg/utils/utils";
 import { ltever } from "@App/pkg/utils/semver";
 import type { ScriptInfo } from "@App/pkg/utils/script";
 import { fetchScriptInfo, prepareSubscribeByCode } from "@App/pkg/utils/script";
-import Cache from "@App/app/cache";
+import { cacheInstance } from "@App/app/cache";
 import CacheKey from "@App/app/cache_key";
 
 export class SubscribeService {
@@ -219,7 +219,7 @@ export class SubscribeService {
         logger.error("prepare script failed", Logger.E(e));
       }
     }
-    Cache.getInstance().set(CacheKey.scriptInstallInfo(info.uuid), info);
+    cacheInstance.set(CacheKey.scriptInstallInfo(info.uuid), info);
     chrome.tabs.create({
       url: `/src/install.html?uuid=${info.uuid}`,
     });

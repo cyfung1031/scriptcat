@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { Group } from "@Packages/message/server";
 import Logger from "@App/app/logger/logger";
 import LoggerCore from "@App/app/logger/core";
-import Cache from "@App/app/cache";
+import { cacheInstance } from "@App/app/cache";
 import CacheKey from "@App/app/cache_key";
 import { checkSilenceUpdate, InfoNotification, openInCurrentTab, randomMessageFlag } from "@App/pkg/utils/utils";
 import { ltever } from "@App/pkg/utils/semver";
@@ -147,10 +147,10 @@ export class ScriptService {
     const uuid = uuidv4();
     return fetchScriptInfo(url, source, false, uuid)
       .then((info) => {
-        Cache.getInstance().set(CacheKey.scriptInstallInfo(uuid), info);
+        cacheInstance.set(CacheKey.scriptInstallInfo(uuid), info);
         setTimeout(() => {
           // 清理缓存
-          Cache.getInstance().del(CacheKey.scriptInstallInfo(uuid));
+          cacheInstance.del(CacheKey.scriptInstallInfo(uuid));
         }, 30 * 1000);
         openInCurrentTab(`/src/install.html?uuid=${uuid}`);
         return { success: true, msg: "" };
@@ -187,7 +187,7 @@ export class ScriptService {
 
   // 获取安装信息
   getInstallInfo(uuid: string) {
-    return Cache.getInstance().get(CacheKey.scriptInstallInfo(uuid));
+    return cacheInstance.get(CacheKey.scriptInstallInfo(uuid));
   }
 
   // 安装脚本
@@ -477,7 +477,7 @@ export class ScriptService {
           }
         }
         // 打开安装页面
-        Cache.getInstance().set(CacheKey.scriptInstallInfo(info.uuid), info);
+        cacheInstance.set(CacheKey.scriptInstallInfo(info.uuid), info);
         chrome.tabs.create({
           url: `/src/install.html?uuid=${info.uuid}`,
         });

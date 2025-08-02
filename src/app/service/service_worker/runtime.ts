@@ -11,7 +11,7 @@ import { type ScriptService } from "./script";
 import { runScript, stopScript } from "../offscreen/client";
 import { getRunAt } from "./utils";
 import { isUserScriptsAvailable, randomMessageFlag } from "@App/pkg/utils/utils";
-import Cache from "@App/app/cache";
+import { cacheInstance } from "@App/app/cache";
 import { dealPatternMatches, UrlMatch } from "@App/pkg/utils/match";
 import { ExtensionContentMessageSend } from "@Packages/message/extension_message";
 import { sendMessage } from "@Packages/message/client";
@@ -160,11 +160,13 @@ export class RuntimeService {
       const uuidSort = Object.fromEntries(scripts.map(({ uuid, sort }) => [uuid, sort]));
       this.scriptMatch.sort((a, b) => uuidSort[a] - uuidSort[b]);
       // 更新缓存
-      const scriptMatchCache: { [key: string]: ScriptMatchInfo } = await Cache.getInstance().get("scriptMatch");
-      Object.keys(scriptMatchCache).forEach((uuid) => {
-        scriptMatchCache[uuid].sort = uuidSort[uuid];
-      });
-      Cache.getInstance().set("scriptMatch", scriptMatchCache);
+      const scriptMatchCache = await cacheInstance.get<{ [key: string]: ScriptMatchInfo }>("scriptMatch");
+      if (scriptMatchCache) {
+        Object.keys(scriptMatchCache).forEach((uuid) => {
+          scriptMatchCache[uuid].sort = uuidSort[uuid];
+        });
+      }
+      cacheInstance.set("scriptMatch", scriptMatchCache);
     });
 
     // 监听offscreen环境初始化, 初始化完成后, 再将后台脚本运行起来
@@ -305,7 +307,7 @@ export class RuntimeService {
         registerScripts.forEach((script) => {
           batchData["registryScript:" + script.id] = true;
         });
-        Cache.getInstance().batchSet(batchData);
+        cacheInstance.batchSet(batchData);
       }
     }
 
@@ -316,15 +318,15 @@ export class RuntimeService {
   }
 
   getAndGenMessageFlag() {
-    return Cache.getInstance().getOrSet("scriptInjectMessageFlag", () => randomMessageFlag());
+    return cacheInstance.getOrSet("scriptInjectMessageFlag", () => randomMessageFlag());
   }
 
   deleteMessageFlag() {
-    return Cache.getInstance().del("scriptInjectMessageFlag");
+    return cacheInstance.del("scriptInjectMessageFlag");
   }
 
   getMessageFlag() {
-    return Cache.getInstance().get("scriptInjectMessageFlag");
+    return cacheInstance.get("scriptInjectMessageFlag");
   }
 
   // 给指定tab发送消息
@@ -628,19 +630,17 @@ export class RuntimeService {
     } else {
       // 如果没有缓存, 则创建一个新的缓存
       const cache = new Map<string, ScriptMatchInfo>();
-      this.loadingScript = Cache.getInstance()
-        .get("scriptMatch")
-        .then((data: { [key: string]: ScriptMatchInfo }) => {
-          if (data) {
-            Object.entries(data)
-              .sort(([, a], [, b]) => a.sort - b.sort)
-              .forEach(([key]) => {
-                const item = data[key];
-                cache.set(item.uuid, item);
-                this.syncAddScriptMatch(item);
-              });
-          }
-        });
+      this.loadingScript = cacheInstance.get<{ [key: string]: ScriptMatchInfo }>("scriptMatch").then((data) => {
+        if (data) {
+          Object.entries(data)
+            .sort(([, a], [, b]) => a.sort - b.sort)
+            .forEach(([key]) => {
+              const item = data[key];
+              cache.set(item.uuid, item);
+              this.syncAddScriptMatch(item);
+            });
+        }
+      });
       await this.loadingScript;
       this.loadingScript = null;
       this.scriptMatchCache = cache;
@@ -662,7 +662,7 @@ export class RuntimeService {
       scriptMatch[key].value = {};
       scriptMatch[key].resource = {};
     });
-    return await Cache.getInstance().set("scriptMatch", scriptMatch);
+    return await cacheInstance.set("scriptMatch", scriptMatch);
   }
 
   async addScriptMatch(item: ScriptMatchInfo) {
@@ -823,7 +823,7 @@ export class RuntimeService {
           logger.error("registerScript error", Logger.E(e));
         }
       }
-      await Cache.getInstance().set("registryScript:" + script.uuid, true);
+      await cacheInstance.set("registryScript:" + script.uuid, true);
     }
   }
 
@@ -831,12 +831,12 @@ export class RuntimeService {
     if (
       !this.isEnableDeveloperMode ||
       !this.isEnableUserscribe ||
-      !(await Cache.getInstance().get("registryScript:" + uuid))
+      !(await cacheInstance.get("registryScript:" + uuid))
     ) {
       return;
     }
     // 删除缓存
-    Cache.getInstance().del("registryScript:" + uuid);
+    cacheInstance.del("registryScript:" + uuid);
     // 修改脚本状态为disable
     this.updateScriptStatus(uuid, SCRIPT_STATUS_DISABLE);
     chrome.userScripts.unregister({ ids: [uuid] });
