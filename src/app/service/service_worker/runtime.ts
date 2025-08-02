@@ -25,6 +25,7 @@ import Logger from "@App/app/logger/logger";
 import { getMetadataStr, getUserConfigStr } from "@App/pkg/utils/utils";
 import type { GMInfoEnv } from "../content/types";
 import { localePath } from "@App/locales/locales";
+import { CACHE_KEY_REGISTRY_SCRIPT } from "@App/app/cache_key";
 
 export class RuntimeService {
   scriptMatch: UrlMatch<string> = new UrlMatch<string>();
@@ -305,7 +306,7 @@ export class RuntimeService {
         }
         const batchData: { [key: string]: any } = {};
         registerScripts.forEach((script) => {
-          batchData["registryScript:" + script.id] = true;
+          batchData[`${CACHE_KEY_REGISTRY_SCRIPT}${script.id}`] = true;
         });
         cacheInstance.batchSet(batchData);
       }
@@ -823,20 +824,18 @@ export class RuntimeService {
           logger.error("registerScript error", Logger.E(e));
         }
       }
-      await cacheInstance.set("registryScript:" + script.uuid, true);
+
+      await cacheInstance.set(`${CACHE_KEY_REGISTRY_SCRIPT}${script.uuid}`, true);
     }
   }
 
   async unregistryPageScript(uuid: string) {
-    if (
-      !this.isEnableDeveloperMode ||
-      !this.isEnableUserscribe ||
-      !(await cacheInstance.get("registryScript:" + uuid))
-    ) {
+    const cacheKey = `${CACHE_KEY_REGISTRY_SCRIPT}${uuid}`;
+    if (!this.isEnableDeveloperMode || !this.isEnableUserscribe || !(await cacheInstance.get(cacheKey))) {
       return;
     }
     // 删除缓存
-    cacheInstance.del("registryScript:" + uuid);
+    cacheInstance.del(cacheKey);
     // 修改脚本状态为disable
     this.updateScriptStatus(uuid, SCRIPT_STATUS_DISABLE);
     chrome.userScripts.unregister({ ids: [uuid] });

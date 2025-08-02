@@ -17,6 +17,7 @@ import {
 } from "../queue";
 import { getStorageName } from "@App/pkg/utils/utils";
 import type { SystemConfig } from "@App/pkg/config/config";
+import { CACHE_KEY_TAB_SCRIPT } from "@App/app/cache_key";
 
 // 处理popup页面的数据
 export class PopupService {
@@ -188,13 +189,15 @@ export class PopupService {
     return { isBlacklist: isBlack, scriptList: scriptMenu, backScriptList: await this.getScriptMenu(-1) };
   }
 
-  async getScriptMenu(tabId: number) {
-    return ((await cacheInstance.get("tabScript:" + tabId)) || []) as ScriptMenu[];
+  async getScriptMenu(tabId: number): Promise<ScriptMenu[]> {
+    const cacheKey = `${CACHE_KEY_TAB_SCRIPT}${tabId}`;
+    return (await cacheInstance.get<ScriptMenu[]>(cacheKey)) || [];
   }
 
   // 事务更新脚本菜单
   txUpdateScriptMenu(tabId: number, callback: ITxSetD<ScriptMenu[]>) {
-    return cacheInstance.tx<ScriptMenu[]>("tabScript:" + tabId, (menu) => callback(menu || []));
+    const cacheKey = `${CACHE_KEY_TAB_SCRIPT}${tabId}`;
+    return cacheInstance.tx<ScriptMenu[]>(cacheKey, (menu) => callback(menu || []));
   }
 
   async addScriptRunNumber({

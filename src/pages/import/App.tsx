@@ -6,7 +6,7 @@ import type { ScriptOptions, ScriptData, SubscribeData } from "@App/pkg/backup/s
 import { prepareScriptByCode } from "@App/pkg/utils/script";
 import { SCRIPT_STATUS_DISABLE, SCRIPT_STATUS_ENABLE, ScriptDAO } from "@App/app/repo/scripts";
 import { cacheInstance } from "@App/app/cache";
-import CacheKey from "@App/app/cache_key";
+import { CACHE_KEY_IMPORT_FILE } from "@App/app/cache_key";
 import { parseBackupZipFile } from "@App/pkg/backup/utils";
 import { scriptClient, synchronizeClient, valueClient } from "../store/features/script";
 import { sleep } from "@App/pkg/utils/utils";
@@ -86,7 +86,8 @@ function App() {
     try {
       const url = new URL(window.location.href);
       const uuid = url.searchParams.get("uuid") || "";
-      const resp = await cacheInstance.get<{ filename: string; url: string }>(CacheKey.importFile(uuid));
+      const cacheKey = `${CACHE_KEY_IMPORT_FILE}${uuid}`;
+      const resp = await cacheInstance.get<{ filename: string; url: string }>(cacheKey);
       if (!resp) throw new Error("fetchData failed");
       const filedata = await fetch(resp.url).then((resp) => resp.blob());
       const zip = await JSZip.loadAsync(filedata);
