@@ -162,11 +162,13 @@ export class RuntimeService {
       this.scriptMatch.sort((a, b) => uuidSort[a] - uuidSort[b]);
       // 更新缓存
       const scriptMatchCache = await cacheInstance.get<{ [key: string]: ScriptMatchInfo }>("scriptMatch");
-      if (scriptMatchCache) {
-        Object.keys(scriptMatchCache).forEach((uuid) => {
-          scriptMatchCache[uuid].sort = uuidSort[uuid];
-        });
+      if (!scriptMatchCache) {
+        console.warn("scriptMatchCache is undefined.");
+        return;
       }
+      Object.keys(scriptMatchCache).forEach((uuid) => {
+        scriptMatchCache[uuid].sort = uuidSort[uuid];
+      });
       cacheInstance.set("scriptMatch", scriptMatchCache);
     });
 
