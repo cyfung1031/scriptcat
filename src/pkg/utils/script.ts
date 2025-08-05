@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import type { SCMetadata, Script, ScriptCode } from "@App/app/repo/scripts";
+import type { TMetadata, Script, ScriptCode } from "@App/app/repo/scripts";
 import {
   SCRIPT_RUN_STATUS_COMPLETE,
   SCRIPT_STATUS_DISABLE,
@@ -16,7 +16,7 @@ import { nextTime } from "./cron";
 import type { InstallSource } from "@App/app/service/service_worker/types";
 import { parseUserConfig } from "./yaml";
 
-export function parseMetadata(code: string): SCMetadata | null {
+export function parseMetadata(code: string): TMetadata | null {
   let issub = false;
   let regex = /\/\/\s*==UserScript==([\s\S]+?)\/\/\s*==\/UserScript==/m;
   let header = regex.exec(code);
@@ -29,7 +29,7 @@ export function parseMetadata(code: string): SCMetadata | null {
     issub = true;
   }
   regex = /\/\/\s*@([\S]+)((.+?)$|$)/gm;
-  const ret = {} as SCMetadata;
+  const ret = {} as TMetadata;
   let meta: RegExpExecArray | null = regex.exec(header[1]);
   while (meta !== null) {
     const [key, val] = [meta[1].toLowerCase().trim(), meta[2].trim()];
@@ -61,7 +61,7 @@ export type ScriptInfo = {
   code: string;
   uuid: string;
   userSubscribe: boolean;
-  metadata: SCMetadata;
+  metadata: TMetadata;
   update: boolean;
   source: InstallSource;
 };

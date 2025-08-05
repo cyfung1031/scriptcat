@@ -1,1 +1,1 @@
-export type SCMetadata = Partial<Record<string, string[]>>;
+export type TMetadata = Partial<Record<string, string[]>>;

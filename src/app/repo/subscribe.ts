@@ -1,7 +1,7 @@
 import { Repo } from "./repo";
-import type { SCMetadata } from "./metadata";
+import type { TMetadata } from "./metadata";
 
-export { SCMetadata };
+export { TMetadata };
 
 export type SUBSCRIBE_STATUS = 1 | 2 | 3 | 4;
 export const SUBSCRIBE_STATUS_ENABLE: SUBSCRIBE_STATUS = 1;
@@ -18,7 +18,7 @@ export interface Subscribe {
   code: string;
   author: string;
   scripts: { [key: string]: SubscribeScript };
-  metadata: SCMetadata;
+  metadata: TMetadata;
   status: SUBSCRIBE_STATUS;
   createtime: number;
   updatetime?: number;

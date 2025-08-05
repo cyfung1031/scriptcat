@@ -1,4 +1,4 @@
-import type { SCMetadata, Script } from "@App/app/repo/scripts";
+import type { TMetadata, Script } from "@App/app/repo/scripts";
 
 // export function randomString(e = 32): string {
 //   const t = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz";
@@ -108,7 +108,7 @@ export async function openInCurrentTab(url: string) {
 }
 
 // 检查订阅规则是否改变,是否能够静默更新
-export function checkSilenceUpdate(oldMeta: SCMetadata, newMeta: SCMetadata): boolean {
+export function checkSilenceUpdate(oldMeta: TMetadata, newMeta: TMetadata): boolean {
   // 判断connect是否改变
   const oldConnect = new Set<string>(oldMeta.connect || []);
   const newConnect = new Set<string>(newMeta.connect || []);

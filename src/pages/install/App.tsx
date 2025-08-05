@@ -16,7 +16,7 @@ import { IconDown } from "@arco-design/web-react/icon";
 import { v4 as uuidv4 } from "uuid";
 import CodeEditor from "../components/CodeEditor";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SCMetadata, Script } from "@App/app/repo/scripts";
+import type { TMetadata, Script } from "@App/app/repo/scripts";
 import { SCRIPT_STATUS_DISABLE, SCRIPT_STATUS_ENABLE } from "@App/app/repo/scripts";
 import type { Subscribe } from "@App/app/repo/subscribe";
 import { i18nDescription, i18nName } from "@App/locales/locales";
@@ -128,7 +128,7 @@ const useScriptInstall = () => {
   };
 };
 
-const usePermissions = (scriptInfo: ScriptInfo | undefined, metadata: SCMetadata) => {
+const usePermissions = (scriptInfo: ScriptInfo | undefined, metadata: TMetadata) => {
   const { t } = useTranslation();
 
   return useMemo(() => {
@@ -164,7 +164,7 @@ const usePermissions = (scriptInfo: ScriptInfo | undefined, metadata: SCMetadata
   }, [scriptInfo, metadata, t]);
 };
 
-const useScriptDescription = (scriptInfo: ScriptInfo | undefined, metadata: SCMetadata) => {
+const useScriptDescription = (scriptInfo: ScriptInfo | undefined, metadata: TMetadata) => {
   const { t } = useTranslation();
 
   return useMemo(() => {
@@ -251,7 +251,7 @@ function App() {
 
   const [watchFile, setWatchFile] = useState(false);
 
-  const metadata = scriptInfo?.metadata || ({} as SCMetadata);
+  const metadata = scriptInfo?.metadata || ({} as TMetadata);
   const permissions = usePermissions(scriptInfo, metadata);
   const description = useScriptDescription(scriptInfo, metadata);
   const antifeatures = useAntiFeatures();
