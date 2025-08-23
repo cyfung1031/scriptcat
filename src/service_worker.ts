@@ -80,43 +80,23 @@ const apiActions: {
   },
 };
 
-// 期望 memory leak
-let previousWakeUp: ((value: unknown) => void) | null = null;
-const wakeUpCallback = (cb: (response?: any) => void) => {
-  previousWakeUp = cb;
-};
-
-chrome.runtime.onMessage.addListener((req, sender, sendReseponse) => {
-  if (req?.type === "WAKEUP") {
-    // 做一個 memory leak 防止 service_worker 關掉
-    try {
-      if (previousWakeUp) {
-        previousWakeUp(1);
-      }
-    } catch {
-      // do nothing
-    }
-    // Do your work here. Return a Promise (or `true` and call sendResponse later)
-    // so the browser keeps the background alive until you finish.
-    wakeUpCallback(sendReseponse);
-    return true;
-  }
+chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   const f = apiActions[req.message ?? ""];
   if (f) {
     let res;
     try {
       res = f(req, sender);
     } catch (e: any) {
-      sendReseponse(msgResponse(1, e));
+      sendResponse(msgResponse(1, e));
       return false;
     }
     if (typeof res?.then === "function") {
-      res.then(sendReseponse).catch((e: Error) => {
-        sendReseponse(msgResponse(1, e));
+      res.then(sendResponse).catch((e: Error) => {
+        sendResponse(msgResponse(1, e));
       });
       return true;
     } else {
-      sendReseponse(msgResponse(0, res));
+      sendResponse(msgResponse(0, res));
       return false;
     }
   }

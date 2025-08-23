@@ -238,17 +238,30 @@ export class RuntimeService {
 
     const onUserScriptAPIGrantAdded = async () => {
       this.boolUserScriptsAvailable = true;
-      // 先取消当前注册 （如有）。
-      // 只是安全起见用。一般情况应该没有注册。
-      await this.unregisterUserscripts();
-      // 如果初始化时开啟了啟用脚本，则注册脚本
-      if (this.isLoadScripts) {
-        await this.registerUserscripts();
+      const res = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "userScripts.PERMISSION_GRANTED" }, (resp) => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError.message);
+          }
+          resolve(resp);
+        });
+      });
+      if (res === 1) {
+        console.log("onUserScriptAPIGrantAdded() is executed.");
+        // 先取消当前注册 （如有）。
+        // 只是安全起见用。一般情况应该没有注册。
+        await this.unregisterUserscripts();
+        // 如果初始化时开啟了啟用脚本，则注册脚本
+        if (this.isLoadScripts) {
+          await this.registerUserscripts();
+        }
       }
     };
 
     const onUserScriptAPIGrantRemoved = async () => {
       this.boolUserScriptsAvailable = false;
+      console.log("onUserScriptAPIGrantRemoved() is executed.");
       // 取消当前注册 （如有）
       await this.unregisterUserscripts();
     };
