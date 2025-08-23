@@ -320,7 +320,7 @@ export class RuntimeService {
     await this.initUserAgentData();
 
     // 如果初始化时开啟了啟用脚本，则注册脚本
-    if (this.isLoadScripts) {
+    if (boolUserScriptsAvailable && this.isLoadScripts) {
       await this.registerUserscripts();
     }
   }

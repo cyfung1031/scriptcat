@@ -115,7 +115,7 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
       let addUserScriptMessageListener: (() => void) | null = () => {
         try {
           // 监听用户脚本的消息
-          chrome.runtime.onUserScriptMessage?.addListener((msg: TMessage, sender, sendResponse) => {
+          chrome.runtime.onUserScriptMessage.addListener((msg: TMessage, sender, sendResponse) => {
             const lastError = chrome.runtime.lastError;
             if (typeof msg.action !== "string") return;
             if (lastError) {

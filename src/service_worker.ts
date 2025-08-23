@@ -14,7 +14,7 @@ migrate();
 
 const OFFSCREEN_DOCUMENT_PATH = "src/offscreen.html";
 
-let creating: Promise<void> | null;
+let creating: Promise<void> | null | boolean = null;
 
 async function hasDocument() {
   const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
@@ -34,23 +34,28 @@ async function setupOffscreenDocument() {
   //if we do not have a document, we are already setup and can skip
   if (!(await hasDocument())) {
     // create offscreen document
-    if (creating) {
-      await creating;
-    } else {
-      creating = chrome.offscreen.createDocument({
-        url: OFFSCREEN_DOCUMENT_PATH,
-        reasons: [
-          chrome.offscreen.Reason.BLOBS,
-          chrome.offscreen.Reason.CLIPBOARD,
-          chrome.offscreen.Reason.DOM_SCRAPING,
-          chrome.offscreen.Reason.LOCAL_STORAGE,
-        ],
-        justification: "offscreen page",
-      });
-
-      await creating;
-      creating = null;
+    if (!creating) {
+      const promise = chrome.offscreen
+        .createDocument({
+          url: OFFSCREEN_DOCUMENT_PATH,
+          reasons: [
+            chrome.offscreen.Reason.BLOBS,
+            chrome.offscreen.Reason.CLIPBOARD,
+            chrome.offscreen.Reason.DOM_SCRAPING,
+            chrome.offscreen.Reason.LOCAL_STORAGE,
+          ],
+          justification: "offscreen page",
+        })
+        .then(() => {
+          if (creating !== promise) {
+            console.log("setupOffscreenDocument() calling is invalid.");
+            return;
+          }
+          creating = true; // chrome.offscreen.createDocument 只執行一次
+        });
+      creating = promise;
     }
+    await creating;
   }
 }
 
