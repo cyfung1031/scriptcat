@@ -237,6 +237,7 @@ export class RuntimeService {
     });
 
     const onUserScriptAPIGrantAdded = async () => {
+      this.boolUserScriptsAvailable = true;
       // 先取消当前注册 （如有）。
       // 只是安全起见用。一般情况应该没有注册。
       await this.unregisterUserscripts();
@@ -247,6 +248,7 @@ export class RuntimeService {
     };
 
     const onUserScriptAPIGrantRemoved = async () => {
+      this.boolUserScriptsAvailable = false;
       // 取消当前注册 （如有）
       await this.unregisterUserscripts();
     };
@@ -262,6 +264,7 @@ export class RuntimeService {
         // 啟动后注册脚本，不需重啟扩充
         onUserScriptAPIGrantAdded();
       }
+      console.log("chrome.permissions.onAdded", [...(permissions.permissions || [])]);
     });
 
     chrome.permissions.onRemoved.addListener((permissions: chrome.permissions.Permissions) => {
@@ -275,6 +278,7 @@ export class RuntimeService {
         // 仅保留作为未来之用
         onUserScriptAPIGrantRemoved();
       }
+      console.log("chrome.permissions.onRemoved", [...(permissions.permissions || [])]);
     });
 
     // ======== 以下初始化是异步处理，因此扩充载入时可能会优先跑其他同步初始化 ========
@@ -323,8 +327,7 @@ export class RuntimeService {
 
   // 取消脚本注册
   async unregisterUserscripts() {
-    await chrome.userScripts.unregister();
-    return this.deleteMessageFlag();
+    await Promise.allSettled([chrome.userScripts.unregister(), this.deleteMessageFlag()]);
   }
 
   async registerUserscripts() {

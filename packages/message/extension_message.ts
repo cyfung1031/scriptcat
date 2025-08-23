@@ -30,7 +30,7 @@ export class ExtensionMessageSend implements MessageSend {
 }
 
 export class ExtensionMessage extends ExtensionMessageSend implements Message {
-  constructor(private onUserScript = false) {
+  constructor(private backgroundPrimary = false) {
     super();
   }
 
@@ -49,20 +49,42 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
       port!.onMessage.addListener(handler);
     });
 
-    if (this.onUserScript) {
-      // 监听用户脚本的连接
-      chrome.runtime.onUserScriptConnect.addListener((port: chrome.runtime.Port | null) => {
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptConnect:", lastError);
-        }
-        const handler = (msg: TMessage) => {
-          port!.onMessage.removeListener(handler);
-          callback(msg, new ExtensionMessageConnect(port!));
-          port = null;
+    if (this.backgroundPrimary) {
+      let addUserScriptConnectionListener = () => {
+        // 监听用户脚本的连接
+        chrome.runtime.onUserScriptConnect.addListener((port: chrome.runtime.Port | null) => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            console.error("chrome.runtime.lastError in chrome.runtime.onUserScriptConnect:", lastError);
+          }
+          const handler = (msg: TMessage) => {
+            port!.onMessage.removeListener(handler);
+            callback(msg, new ExtensionMessageConnect(port!));
+            port = null;
+          };
+          port!.onMessage.addListener(handler);
+        });
+        addUserScriptConnectionListener = () => {
+          // do nothing
         };
-        port!.onMessage.addListener(handler);
-      });
+        console.log("addUserScriptConnectionListener() is executed.");
+      };
+      if (typeof chrome.runtime.onUserScriptConnect?.addListener === "function") {
+        // Chrome
+        addUserScriptConnectionListener();
+      } else {
+        // Firefox 需要先得到 userScripts 權限才能進行 onUserScriptConnect 的監聽
+        chrome.runtime.onMessage.addListener((req, sender, sendReseponse) => {
+          if (req?.type === "userScripts.PERMISSION_GRANTED") {
+            console.log("userScripts.PERMISSION_GRANTED");
+            if (typeof chrome.runtime.onUserScriptConnect?.addListener === "function") {
+              addUserScriptConnectionListener();
+            }
+            sendReseponse(1);
+            return false;
+          }
+        });
+      }
     }
   }
 
@@ -80,7 +102,7 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
       }
       return callback(msg, sendResponse, sender);
     });
-    if (this.onUserScript) {
+    if (this.backgroundPrimary) {
       // 监听用户脚本的消息
       chrome.runtime.onUserScriptMessage?.addListener((msg: TMessage, sender, sendResponse) => {
         const lastError = chrome.runtime.lastError;
