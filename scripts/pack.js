@@ -67,6 +67,7 @@ delete chromeManifest.content_security_policy;
 delete chromeManifest.optional_permissions;
 delete chromeManifest.background.scripts;
 
+delete firefoxManifest.background.service_worker;
 delete firefoxManifest.sandbox;
 // firefoxManifest.content_security_policy = "script-src 'self' blob:; object-src 'self' blob:";
 firefoxManifest.browser_specific_settings = {
@@ -74,7 +75,7 @@ firefoxManifest.browser_specific_settings = {
     id: `{${
       version.prerelease.length ? "44ab8538-2642-46b0-8a57-3942dbc1a33b" : "8e515334-52b5-4cc5-b4e8-675d50af677d"
     }}`,
-    strict_min_version: "91.1.0",
+    strict_min_version: "109.0",
   },
 };
 
