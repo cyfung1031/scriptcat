@@ -109,13 +109,13 @@ chrome
   })
   .pipe(createWriteStream(`./dist/${packageInfo.name}-v${packageInfo.version}-chrome.zip`));
 
-// firefox
-//   .generateNodeStream({
-//     type: "nodebuffer",
-//     streamFiles: true,
-//     compression: "DEFLATE",
-//   })
-//   .pipe(createWriteStream(`./dist/${package.name}-v${package.version}-firefox.zip`));
+firefox
+  .generateNodeStream({
+    type: "nodebuffer",
+    streamFiles: true,
+    compression: "DEFLATE",
+  })
+  .pipe(createWriteStream(`./dist/${packageInfo.name}-v${packageInfo.version}-firefox.zip`));
 
 // 处理crx
 const crx = new ChromeExtension({
