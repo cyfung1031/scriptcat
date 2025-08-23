@@ -52,10 +52,10 @@ execSync("npm run build", { stdio: "inherit" });
 
 if (version.prerelease.length || process.env.GITHUB_REF_TYPE === "branch") {
   // beta时红猫logo
-  fs.copyFileSync("./build/assets/logo-beta.png", "./dist/ext/assets/logo.png");
+  await fs.copyFile("./build/assets/logo-beta.png", "./dist/ext/assets/logo.png");
 } else {
   // 非beta时蓝猫logo
-  fs.copyFileSync("./build/assets/logo.png", "./dist/ext/assets/logo.png");
+  await fs.copyFile("./build/assets/logo.png", "./dist/ext/assets/logo.png");
 }
 
 // 处理firefox和chrome的zip压缩包
