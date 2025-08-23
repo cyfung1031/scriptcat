@@ -254,7 +254,7 @@ export class RuntimeService {
     chrome.permissions.onAdded.addListener((permissions: chrome.permissions.Permissions) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError);
+        console.error("chrome.runtime.lastError in chrome.permissions.onAdded:", lastError);
         return;
       }
       if (permissions.permissions?.includes("userScripts")) {
@@ -267,7 +267,7 @@ export class RuntimeService {
     chrome.permissions.onRemoved.addListener((permissions: chrome.permissions.Permissions) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError);
+        console.error("chrome.runtime.lastError in chrome.permissions.onRemoved:", lastError);
         return;
       }
       if (permissions.permissions?.includes("userScripts")) {
