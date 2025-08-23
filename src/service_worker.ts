@@ -26,6 +26,11 @@ async function hasDocument() {
 }
 
 async function setupOffscreenDocument() {
+  if (typeof chrome.offscreen?.createDocument !== "function") {
+    // Firefox does not support offscreen
+    console.error("Your browser does not support chrome.offscreen.createDocument");
+    return;
+  }
   //if we do not have a document, we are already setup and can skip
   if (!(await hasDocument())) {
     // create offscreen document
