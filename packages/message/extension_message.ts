@@ -100,23 +100,19 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
         // 消息API发生错误因此不继续执行
         return false;
       }
-      if ((msg as any)?.type === "userScripts.REQUEST_PERMISSION") {
-        console.log("userScripts.REQUEST_PERMISSION");
-        chrome.permissions.request({ permissions: ["userScripts"] }, (granted) => {
-          const lastError = chrome.runtime.lastError;
-          if (lastError) {
-            console.error("chrome.runtime.lastError in chrome.permissions.request:", lastError.message);
-          }
-          if (!granted) {
-            sendResponse(false);
-            return;
-          }
-          console.log("userScripts.PERMISSION_GRANTED");
+      if ((msg as any)?.type === "userScripts.LISTEN_CONNECTIONS") {
+        console.log("userScripts.LISTEN_CONNECTIONS");
+        if (
+          typeof chrome.runtime.onUserScriptConnect?.addListener === "function" &&
+          typeof chrome.runtime.onUserScriptMessage?.addListener === "function"
+        ) {
           this.tryEnableUserScriptConnectionListener();
           this.tryEnableUserScriptMessageListener();
           sendResponse(true);
-        });
-        return true;
+        } else {
+          sendResponse(false);
+        }
+        return false;
       }
       if (typeof msg.action !== "string") return;
       return callback(msg, sendResponse, sender);
