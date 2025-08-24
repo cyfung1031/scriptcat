@@ -438,7 +438,6 @@ export class PopupService {
       this.genScriptMenu(activeInfo.tabId);
       this.updateBadgeIcon(activeInfo.tabId);
     });
-
     // chrome.tabs.onUpdated.addListener((tabId, _changeInfo, _tab) => {
     //   const lastError = chrome.runtime.lastError;
     //   if (lastError) {
