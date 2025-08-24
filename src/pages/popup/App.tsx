@@ -245,31 +245,11 @@ function App() {
       {showRequestButton && (
         <Button
           onClick={() => {
-            const checkAndUpdateGrantedState = async (granted: boolean) => {
-              if (granted) {
-                // chrome.runtime.sendMessage({ type: "WAKEUP" }, (resp) => {
-                //   const lastError = chrome.runtime.lastError;
-                //   if (lastError) {
-                //     console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError.message);
-                //   }
-                //   // wakeup 會期待一個未來的數字1
-                //   console.assert(resp === 1, { resp, errorMsg: "error" });
-                // });
-                chrome.runtime.sendMessage({ type: "userScripts.PERMISSION_GRANTED" }, (resp) => {
-                  const lastError = chrome.runtime.lastError;
-                  if (lastError) {
-                    console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError.message);
-                  }
-                  // wakeup 會期待一個未來的數字1
-                  console.assert(resp === 1, { resp, errorMsg: "error" });
-                });
-                try {
-                  if (false === (await isUserScriptsAvailable())) {
-                    granted = false;
-                  }
-                } catch {
-                  granted = false;
-                }
+            chrome.permissions.request({ permissions: ["userScripts"] }, function (granted) {
+              const lastError = chrome.runtime.lastError;
+              if (lastError) {
+                granted = false;
+                console.error("chrome.runtime.lastError in chrome.permissions.request:", lastError.message);
               }
               if (granted) {
                 console.log("Permission granted");
@@ -283,14 +263,6 @@ function App() {
                 console.log("Permission denied");
                 setPermissionReqResult("❎");
               }
-            };
-            chrome.permissions.request({ permissions: ["userScripts"] }, function (granted) {
-              const lastError = chrome.runtime.lastError;
-              if (lastError) {
-                granted = false;
-                console.error("chrome.runtime.lastError in chrome.permissions.request:", lastError.message);
-              }
-              checkAndUpdateGrantedState(granted);
             });
           }}
         >
