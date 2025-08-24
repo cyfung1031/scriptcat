@@ -78,13 +78,13 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
           // do nothing
         }
       };
-      // Firefox 需要先得到 userScripts 權限才能進行 onUserScriptConnect 的監聽
+      // Firefox 需要先得到 userScripts 权限才能进行 onUserScriptConnect 的监听
       this.tryEnableUserScriptConnectionListener = () => {
         if (typeof chrome.runtime.onUserScriptConnect?.addListener === "function") {
           addUserScriptConnectionListener && addUserScriptConnectionListener();
         }
       };
-      // Chrome 在初始化時就能監聽
+      // Chrome 在初始化时就能监听
       this.tryEnableUserScriptConnectionListener();
     }
   }
@@ -93,7 +93,7 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
   onMessage(
     callback: (data: TMessageCommAction, sendResponse: (data: any) => void, sender: MessageSender) => boolean | void
   ): void {
-    chrome.runtime.onMessage.addListener((msg: TMessage, sender, sendResponse) => {
+    chrome.runtime.onMessage?.addListener((msg: TMessage, sender, sendResponse) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
         console.error("chrome.runtime.lastError in chrome.runtime.onMessage:", lastError);
@@ -138,13 +138,13 @@ export class ExtensionMessage extends ExtensionMessageSend implements Message {
           // do nothing
         }
       };
-      // Firefox 需要先得到 userScripts 權限才能進行 onUserScriptMessage 的監聽
+      // Firefox 需要先得到 userScripts 权限才能进行 onUserScriptMessage 的监听
       this.tryEnableUserScriptMessageListener = () => {
         if (typeof chrome.runtime.onUserScriptMessage?.addListener === "function") {
           addUserScriptMessageListener && addUserScriptMessageListener();
         }
       };
-      // Chrome 在初始化時就能監聽
+      // Chrome 在初始化时就能监听
       this.tryEnableUserScriptMessageListener();
     }
   }
