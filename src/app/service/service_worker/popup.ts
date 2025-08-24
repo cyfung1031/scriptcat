@@ -439,19 +439,6 @@ export class PopupService {
       this.updateBadgeIcon(activeInfo.tabId);
     });
 
-    chrome.permissions.onAdded.addListener((permissions: chrome.permissions.Permissions) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) {
-        console.error("chrome.runtime.lastError in chrome.permissions.onAdded:", lastError);
-        return;
-      }
-      if (permissions.permissions?.includes("userScripts")) {
-        getCurrentTab().then((tab) => {
-          this.updateBadgeIcon(tab.id);
-        });
-      }
-    });
-
     // chrome.tabs.onUpdated.addListener((tabId, _changeInfo, _tab) => {
     //   const lastError = chrome.runtime.lastError;
     //   if (lastError) {

@@ -116,6 +116,25 @@ export class RuntimeService {
     chrome.action.setBadgeText({
       text: "!",
     });
+
+    chrome.permissions.onAdded.addListener((permissions: chrome.permissions.Permissions) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        console.error("chrome.runtime.lastError in chrome.permissions.onAdded:", lastError);
+        return;
+      }
+      if (permissions.permissions?.includes("userScripts")) {
+        chrome.action.setBadgeBackgroundColor({
+          color: [0, 0, 0, 0], // transparent (RGBA)
+        });
+        chrome.action.setBadgeTextColor({
+          color: "#ffffff", // default is white
+        });
+        chrome.action.setBadgeText({
+          text: "", // clears badge
+        });
+      }
+    });
   }
 
   async init() {
