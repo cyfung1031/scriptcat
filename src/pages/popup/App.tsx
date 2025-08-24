@@ -245,6 +245,14 @@ function App() {
       {showRequestButton && (
         <Button
           onClick={() => {
+            chrome.runtime.sendMessage({ type: "WAKEUP" }, (resp) => {
+              const lastError = chrome.runtime.lastError;
+              if (lastError) {
+                console.error("chrome.runtime.lastError in chrome.runtime.sendMessage:", lastError.message);
+              }
+              // wakeup 會期待一個未來的數字1
+              console.assert(resp === 1, { resp, errorMsg: "error" });
+            });
             chrome.permissions.request({ permissions: ["userScripts"] }, function (granted) {
               const lastError = chrome.runtime.lastError;
               if (lastError) {
