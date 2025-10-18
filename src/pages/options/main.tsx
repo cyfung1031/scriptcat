@@ -12,6 +12,8 @@ import { LoggerDAO } from "@App/app/repo/logger.ts";
 import DBWriter from "@App/app/logger/db_writer.ts";
 import registerEditor from "@App/pkg/utils/monaco-editor";
 import migrate from "@App/app/migrate.ts";
+import EditorOverlay from "../components/ScriptEditor/EditorOverlay.tsx";
+import { HashRouter } from "react-router-dom";
 
 migrate();
 
@@ -27,9 +29,13 @@ loggerCore.logger().debug("options page start");
 
 const Root = (
   <AppProvider>
-    <MainLayout className="!flex-row" pageName="options">
-      <Sider />
-    </MainLayout>
+    <HashRouter>
+      <MainLayout className="!flex-row" pageName="options">
+        <Sider />
+        <div id="editor-children-popup"></div>
+        <EditorOverlay />
+      </MainLayout>
+    </HashRouter>
   </AppProvider>
 );
 

@@ -43,12 +43,17 @@ const MainLayout: React.FC<{
   pageName?: string;
 }> = ({ children, className, pageName }) => {
   const [modal, contextHolder] = Modal.useModal();
-  const { colorThemeState, updateColorTheme } = useAppContext();
+  const { colorThemeState, updateColorTheme, openEditor } = useAppContext();
 
   const importRef = useRef<RefTextAreaType>(null);
   const [importVisible, setImportVisible] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
   const { t } = useTranslation();
+
+  // 統一處理「新增腳本」
+  const createScript = (o: { template?: "" | "background" | "crontab"; target?: "blank" | "initial" }) => {
+    openEditor({ template: o.template || "", target: o.target || "blank" });
+  };
 
   const showImportResult = (stat: Awaited<ReturnType<ScriptClient["importByUrls"]>>) => {
     if (!stat) return;
@@ -239,23 +244,30 @@ const MainLayout: React.FC<{
             {pageName === "options" && (
               <Dropdown
                 droplist={
-                  <Menu style={{ maxHeight: "100%", width: "calc(100% + 10px)" }}>
-                    <Menu.Item key="/script/editor">
-                      <a href="#/script/editor">
-                        <RiFileCodeLine /> {t("create_user_script")}
-                      </a>
-                    </Menu.Item>
-                    <Menu.Item key="background">
-                      <a href="#/script/editor?template=background">
-                        <RiTerminalBoxLine /> {t("create_background_script")}
-                      </a>
-                    </Menu.Item>
-                    <Menu.Item key="crontab">
-                      <a href="#/script/editor?template=crontab">
-                        <RiTimerLine /> {t("create_scheduled_script")}
-                      </a>
+                  <Menu className={"mr-2"}>
+                    <Menu.Item
+                      className={"option-entry"}
+                      key="/script/editor"
+                      onClick={() => createScript({ template: "" })}
+                    >
+                      <RiFileCodeLine /> {t("create_user_script")}
                     </Menu.Item>
                     <Menu.Item
+                      className={"option-entry"}
+                      key="/script/editor!background"
+                      onClick={() => createScript({ template: "background", target: "blank" })}
+                    >
+                      <RiTerminalBoxLine /> {t("create_background_script")}
+                    </Menu.Item>
+                    <Menu.Item
+                      className={"option-entry"}
+                      key="/script/editor!crontab"
+                      onClick={() => createScript({ template: "crontab", target: "blank" })}
+                    >
+                      <RiTimerLine /> {t("create_scheduled_script")}
+                    </Menu.Item>
+                    <Menu.Item
+                      className={"option-entry"}
                       key="import_local"
                       onClick={() => {
                         if ("showOpenFilePicker" in window) {
@@ -283,6 +295,7 @@ const MainLayout: React.FC<{
                       <RiImportLine /> {t("import_by_local")}
                     </Menu.Item>
                     <Menu.Item
+                      className={"option-entry"}
                       key="link"
                       onClick={() => {
                         setImportVisible(true);
@@ -309,6 +322,7 @@ const MainLayout: React.FC<{
             <Dropdown
               droplist={
                 <Menu
+                  className={"mr-2"}
                   onClickMenuItem={(key) => {
                     const theme = key as "auto" | "light" | "dark";
                     updateColorTheme(theme);

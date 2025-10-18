@@ -1,15 +1,55 @@
-import React, { useState, createContext, type ReactNode, useEffect, useContext } from "react";
+import React, { useState, createContext, type ReactNode, useEffect, useContext, useCallback, useRef } from "react";
 import { messageQueue } from "./global";
 import { editor } from "monaco-editor";
 import { type TKeyValue } from "@Packages/message/message_queue";
 import { changeLanguage } from "@App/locales/locales";
 import { SystemConfigChange } from "@App/pkg/config/config";
+import {
+  getScriptEditorOpenStatus,
+  hideContentAboveInPageEditor,
+  makeModalVisible,
+  ScriptEditorOpenStatus,
+} from "../components/ScriptEditor/utils";
 
 export type ThemeParam = { theme: "auto" | "light" | "dark" };
 export interface AppContextType {
   colorThemeState: "auto" | "light" | "dark";
   updateColorTheme: (theme: "auto" | "light" | "dark") => void;
   subscribeMessage: <T>(topic: string, handler: (msg: T) => void) => () => void;
+  editorOpen: boolean;
+  setEditorOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editorParams:
+    | {
+        uuid?: string | undefined;
+        template?: "" | "background" | "crontab" | undefined;
+        target?: "blank" | "initial" | undefined;
+      }
+    | undefined;
+  setEditorParams: React.Dispatch<
+    React.SetStateAction<
+      | {
+          uuid?: string;
+          template?: "" | "background" | "crontab";
+          target?: "blank" | "initial";
+        }
+      | undefined
+    >
+  >;
+  openEditor: (
+    params?:
+      | {
+          uuid?: string | undefined;
+          template?: "" | "background" | "crontab" | undefined;
+          target?: "blank" | "initial" | undefined;
+        }
+      | undefined
+  ) => void;
+  closeEditor: () => void;
+  updateEditorHash: (params: {
+    uuid?: string | undefined;
+    template?: "" | "background" | "crontab" | undefined;
+    target?: "blank" | "initial" | undefined;
+  }) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -56,7 +96,100 @@ const setAppColorTheme = (theme: "light" | "dark" | "auto") => {
   }
 };
 
+function replaceHashSilently(nextHash: string) {
+  const url = new URL(window.location.href);
+  const curr = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  const next = nextHash.startsWith("#") ? nextHash.slice(1) : nextHash;
+  if (curr === next) return; // ✅ 相同就不要動，避免重複觸發
+
+  url.hash = next; // 只改 URL 物件中的 hash
+  history.replaceState({ __fromOverlayEditor: true }, "", url.toString()); // ✅ 靜默替換，不觸發 hashchange
+}
+
+function buildEditorHash(params?: { uuid?: string; template?: string; target?: "blank" | "initial" }) {
+  if (!params) return "/script/editor";
+  const { uuid, template, target } = params;
+  if (uuid) return `/script/editor/${uuid}`;
+  const qs: string[] = [];
+  if (template) qs.push(`template=${encodeURIComponent(template)}`);
+  if (target) qs.push(`target=${encodeURIComponent(target)}`);
+  return `/script/editor${qs.length ? `?${qs.join("&")}` : ""}`;
+}
+
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorParams, setEditorParams] = useState<{
+    uuid?: string;
+    template?: "" | "background" | "crontab";
+    target?: "blank" | "initial";
+  }>();
+  const prevHashRef = useRef<string>(window.location.hash);
+
+  const openEditor = useCallback(
+    (params?: { uuid?: string; template?: "" | "background" | "crontab"; target?: "blank" | "initial" }) => {
+      const openStatus = getScriptEditorOpenStatus();
+      if (openStatus & ScriptEditorOpenStatus.MODAL_INVISIBLE) {
+        makeModalVisible();
+      }
+      if (openStatus & ScriptEditorOpenStatus.IN_PAGE) {
+        // URL 模式：通知路由內的 ScriptEditor 自己加一個分頁
+        window.dispatchEvent(
+          new CustomEvent("scriptcat:editor:add", {
+            detail: { template: params?.template || "", target: params?.target || "blank" },
+          })
+        );
+      } else {
+        // Overlay 模式
+        const hasModal =
+          (openStatus & (ScriptEditorOpenStatus.MODAL_VISIBLE | ScriptEditorOpenStatus.MODAL_INVISIBLE)) > 0;
+        if (hasModal) {
+          window.dispatchEvent(
+            new CustomEvent("scriptcat:editor:add", {
+              detail: { template: params?.template || "", target: params?.target || "blank" },
+            })
+          );
+          // prevHashRef.current = window.location.hash;
+          // setEditorParams(params);
+
+          // // 不新增歷史紀錄：用 replace
+          // replaceHashSilently(buildEditorHash(params));
+        } else {
+          prevHashRef.current = window.location.hash;
+          setEditorParams(params);
+
+          // 不新增歷史紀錄：用 replace
+          replaceHashSilently(buildEditorHash(params));
+        }
+
+        if ((openStatus & ScriptEditorOpenStatus.IN_PAGE) > 0) {
+          const targetId = "scripteditor-modal-container";
+          const mb = document.getElementById(`modal-for-${targetId}`);
+          if (!mb?.firstElementChild) {
+            makeModalVisible();
+            setTimeout(hideContentAboveInPageEditor, 1);
+          }
+        }
+
+        setEditorOpen(true);
+      }
+      setTimeout(hideContentAboveInPageEditor, 1);
+    },
+    []
+  );
+
+  const closeEditor = useCallback(() => {
+    setEditorOpen(false);
+    // 還原到打開前的 hash，同樣 replace
+    const url = new URL(window.location.href);
+    url.hash = prevHashRef.current || "#/";
+    history.replaceState(null, "", url);
+  }, []);
+
+  // 提供給 Core，在切換 tab/建立新稿時更新 hash（仍使用 replace）
+  const updateEditorHash = useCallback((params: { uuid?: string; template?: string; target?: "blank" | "initial" }) => {
+    replaceHashSilently(buildEditorHash(params));
+  }, []);
+
   const [colorThemeState, setColorThemeState] = useState<"auto" | "light" | "dark">(() => {
     colorThemeInit();
     return localStorage.lightMode || "auto";
@@ -98,7 +231,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
 
   return (
-    <AppContext.Provider value={{ colorThemeState, updateColorTheme, subscribeMessage }}>
+    <AppContext.Provider
+      value={{
+        colorThemeState,
+        updateColorTheme,
+        subscribeMessage,
+        editorOpen,
+        setEditorOpen,
+        editorParams,
+        setEditorParams,
+        openEditor,
+        closeEditor,
+        updateEditorHash,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );
