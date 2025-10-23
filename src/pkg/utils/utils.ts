@@ -346,3 +346,21 @@ export const stringMatching = (main: string, sub: string): boolean => {
     return false;
   }
 };
+
+export const isThisBlobObj = (x: any) => {
+  return x instanceof Blob;
+  // return x && typeof x === "object" && (x instanceof Blob || `${x}` === "[object Blob]");
+};
+
+/** Convert a Blob/File to Uint8Array */
+export const blobToUint8Array = async (blob: Blob): Promise<Uint8Array<ArrayBuffer>> => {
+  if (typeof blob?.arrayBuffer === "function") return new Uint8Array(await blob.arrayBuffer());
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(new Uint8Array(reader.result as ArrayBuffer));
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(blob);
+  });
+};

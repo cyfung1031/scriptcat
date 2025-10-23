@@ -2,7 +2,7 @@ import LoggerCore from "@App/app/logger/core";
 import Logger from "@App/app/logger/logger";
 import { ScriptDAO } from "@App/app/repo/scripts";
 import { SenderConnect, type IGetSender, type Group, GetSenderType } from "@Packages/message/server";
-import type { ExtMessageSender, MessageSend } from "@Packages/message/types";
+import type { ExtMessageSender, MessageSend, TMessageCommAction } from "@Packages/message/types";
 import { connect, sendMessage } from "@Packages/message/client";
 import type { IMessageQueue } from "@Packages/message/message_queue";
 import { MockMessageConnect } from "@Packages/message/mock_message";
@@ -12,7 +12,7 @@ import PermissionVerify, { PermissionVerifyApiGet } from "./permission_verify";
 import { cacheInstance } from "@App/app/cache";
 import EventEmitter from "eventemitter3";
 import { type RuntimeService } from "./runtime";
-import { getIcon, isFirefox, openInCurrentTab, cleanFileName } from "@App/pkg/utils/utils";
+import { getIcon, isFirefox, openInCurrentTab, cleanFileName, isThisBlobObj } from "@App/pkg/utils/utils";
 import { type SystemConfig } from "@App/pkg/config/config";
 import i18next, { i18nName } from "@App/locales/locales";
 import FileSystemFactory from "@Packages/filesystem/factory";
@@ -33,6 +33,7 @@ import i18n from "@App/locales/locales";
 import { decodeMessage, type TEncodedMessage } from "@App/pkg/utils/message_value";
 import { type TGMKeyValue } from "@App/app/repo/value";
 import { createObjectURL } from "../offscreen/client";
+import { backgroundXhrAPI } from "./gm_xhr_api";
 
 // GMApi,处理脚本的GM API调用请求
 
@@ -154,6 +155,17 @@ export class MockGMExternalDependencies implements IGMExternalDependencies {
     console.log("Mock emitEventToTab called", { to, req });
   }
 }
+
+const supportedRequestMethods = new Set<string>([
+  "connect",
+  "delete",
+  "get",
+  "head",
+  "options",
+  "patch",
+  "post",
+  "put",
+]);
 
 export default class GMApi {
   logger: Logger;
@@ -473,15 +485,13 @@ export default class GMApi {
   // 有一些操作需要同步，就用Map作为缓存
   cache = new Map<string, any>();
 
-  chromeSupportMethod = new Set<string>(["connect", "delete", "get", "head", "options", "patch", "post", "put"]);
-
   // 根据header生成dnr规则
-  async buildDNRRule(
-    reqeustId: number,
-    params: GMSend.XHRDetails,
-    sender: IGetSender
-  ): Promise<{ [key: string]: string }> {
-    const headers = params.headers || {};
+  async buildDNRRule(requestId: number, params: GMSend.XHRDetails, sender: IGetSender): Promise<boolean> {
+    // 添加请求header
+    const headers = params.headers || (params.headers = {});
+    const { anonymous, cookie } = params;
+    headers["X-Scriptcat-GM-XHR-Request-Id"] = `${requestId}`;
+
     // 如果header中没有origin就设置为空字符串，如果有origin就不做处理，注意处理大小写
     if (!("Origin" in headers) && !("origin" in headers)) {
       headers["Origin"] = "";
@@ -494,13 +504,13 @@ export default class GMApi {
       },
     ] as chrome.declarativeNetRequest.ModifyHeaderInfo[];
     // 判断是否是anonymous
-    if (params.anonymous) {
+    if (anonymous) {
       // 如果是anonymous，并且有cookie，则设置为自定义的cookie
-      if (params.cookie) {
+      if (cookie) {
         requestHeaders.push({
           header: "cookie",
           operation: "set",
-          value: params.cookie,
+          value: cookie,
         });
       } else {
         // 否则删除cookie
@@ -510,9 +520,9 @@ export default class GMApi {
         });
       }
     } else {
-      if (params.cookie) {
+      if (cookie) {
         // 否则正常携带cookie header
-        headers["cookie"] = params.cookie;
+        headers["cookie"] = cookie;
       }
 
       // 追加该网站本身存储的cookie
@@ -538,21 +548,9 @@ export default class GMApi {
       });
       // 追加cookie
       if (cookies.length) {
-        const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-        if (!("cookie" in headers)) {
-          headers.cookie = "";
-        }
-        headers["cookie"] = headers["cookie"].trim();
-        if (headers["cookie"] === "") {
-          // 空的
-          headers["cookie"] = cookieStr;
-        } else {
-          // 非空
-          if (!headers["cookie"].endsWith(";")) {
-            headers["cookie"] = headers["cookie"] + "; ";
-          }
-          headers["cookie"] = headers["cookie"] + cookieStr;
-        }
+        const v = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+        const u = `${headers["cookie"] || ""}`.trim();
+        headers["cookie"] = u ? `${u}${!u.endsWith(";") ? "; " : " "}${v}` : v;
       }
     }
 
@@ -579,147 +577,150 @@ export default class GMApi {
       deleteHeader && delete headers[key];
     }
 
-    const rule = {} as chrome.declarativeNetRequest.Rule;
-    rule.id = reqeustId;
-    rule.action = {
-      type: "modifyHeaders",
-      requestHeaders: requestHeaders,
-    };
-    rule.priority = 1;
-    const tabs = await chrome.tabs.query({});
-    const excludedTabIds: number[] = [];
-    for (const tab of tabs) {
-      if (tab.id) {
-        excludedTabIds.push(tab.id);
-      }
-    }
+    // const tabs = await chrome.tabs.query({});
+    // const excludedTabIds: number[] = [];
+    // for (const tab of tabs) {
+    //   if (tab.id) {
+    //     excludedTabIds.push(tab.id);
+    //   }
+    // }
     let requestMethod = (params.method || "GET").toLowerCase() as chrome.declarativeNetRequest.RequestMethod;
-    if (!this.chromeSupportMethod.has(requestMethod)) {
+    if (!supportedRequestMethods.has(requestMethod)) {
       requestMethod = "other" as chrome.declarativeNetRequest.RequestMethod;
     }
-    rule.condition = {
-      resourceTypes: ["xmlhttprequest"],
-      urlFilter: params.url,
-      requestMethods: [requestMethod],
-      excludedTabIds: excludedTabIds,
-    };
-    this.cache.set("dnrRule:" + reqeustId.toString(), rule);
+
+    const rule = {
+      id: requestId,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: requestHeaders,
+      },
+      priority: 1,
+      condition: {
+        resourceTypes: ["xmlhttprequest"],
+        urlFilter: params.url,
+        requestMethods: [requestMethod],
+        // excludedTabIds: excludedTabIds,
+        tabIds: [chrome.tabs.TAB_ID_NONE], // 只限於後台 service_worker / offscreen
+      },
+    } as chrome.declarativeNetRequest.Rule;
+    this.cache.set("dnrRule:" + requestId.toString(), rule);
     await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [reqeustId],
+      removeRuleIds: [requestId],
       addRules: [rule],
     });
-    return headers;
+    return true;
   }
 
   gmXhrHeadersReceived = new EventEmitter<string, any>();
 
-  dealFetch(
-    config: GMSend.XHRDetails,
-    response: Response,
-    readyState: 0 | 1 | 2 | 3 | 4,
-    resultParam?: RequestResultParams
-  ) {
-    let respHeader = "";
-    response.headers.forEach((value, key) => {
-      respHeader += `${key}: ${value}\n`;
-    });
-    const respond: GMTypes.XHRResponse = {
-      finalUrl: response.url || config.url,
-      readyState,
-      status: response.status,
-      statusText: response.statusText,
-      responseHeaders: respHeader,
-      responseType: config.responseType,
-    };
-    if (resultParam) {
-      respond.status = respond.status || resultParam.statusCode;
-      respond.responseHeaders = resultParam.responseHeader || respond.responseHeaders;
-    }
-    return respond;
-  }
+  // dealFetch(
+  //   config: GMSend.XHRDetails,
+  //   response: Response,
+  //   readyState: 0 | 1 | 2 | 3 | 4,
+  //   resultParam?: RequestResultParams
+  // ) {
+  //   let respHeader = "";
+  //   response.headers.forEach((value, key) => {
+  //     respHeader += `${key}: ${value}\n`;
+  //   });
+  //   const respond: GMTypes.XHRResponse = {
+  //     finalUrl: response.url || config.url,
+  //     readyState,
+  //     status: response.status,
+  //     statusText: response.statusText,
+  //     responseHeaders: respHeader,
+  //     responseType: config.responseType,
+  //   };
+  //   if (resultParam) {
+  //     respond.status = respond.status || resultParam.statusCode;
+  //     respond.responseHeaders = resultParam.responseHeader || respond.responseHeaders;
+  //   }
+  //   return respond;
+  // }
 
-  CAT_fetch(config: GMSend.XHRDetails, con: IGetSender, resultParam: RequestResultParams) {
-    const { url } = config;
-    const msgConn = con.getConnect();
-    if (!msgConn) {
-      throw new Error("CAT_fetch ERROR: msgConn is undefinded");
-    }
-    return fetch(url, {
-      method: config.method || "GET",
-      body: <any>config.data,
-      headers: config.headers,
-      redirect: config.redirect,
-      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
-    }).then((resp) => {
-      let send = this.dealFetch(config, resp, 1);
-      switch (resp.type) {
-        case "opaqueredirect":
-          // 处理manual重定向
-          msgConn.sendMessage({
-            action: "onloadstart",
-            data: send,
-          });
-          send = this.dealFetch(config, resp, 2, resultParam);
-          msgConn.sendMessage({
-            action: "onreadystatechange",
-            data: send,
-          });
-          send.readyState = 4;
-          msgConn.sendMessage({
-            action: "onreadystatechange",
-            data: send,
-          });
-          msgConn.sendMessage({
-            action: "onload",
-            data: send,
-          });
-          msgConn.sendMessage({
-            action: "onloadend",
-            data: send,
-          });
-          return;
-      }
-      const reader = resp.body?.getReader();
-      if (!reader) {
-        throw new Error("read is not found");
-      }
-      const readData = ({ done, value }: { done: boolean; value?: Uint8Array }) => {
-        if (done) {
-          const data = this.dealFetch(config, resp, 4, resultParam);
-          data.responseHeaders = resultParam.responseHeader || data.responseHeaders;
-          msgConn.sendMessage({
-            action: "onreadystatechange",
-            data: data,
-          });
-          msgConn.sendMessage({
-            action: "onload",
-            data: data,
-          });
-          msgConn.sendMessage({
-            action: "onloadend",
-            data: data,
-          });
-        } else {
-          msgConn.sendMessage({
-            action: "onstream",
-            data: Array.from(value!),
-          });
-          reader.read().then(readData);
-        }
-      };
-      reader.read().then(readData);
-      send.responseHeaders = resultParam.responseHeader || send.responseHeaders;
-      msgConn.sendMessage({
-        action: "onloadstart",
-        data: send,
-      });
-      send.readyState = 2;
-      msgConn.sendMessage({
-        action: "onreadystatechange",
-        data: send,
-      });
-    });
-  }
+  // CAT_fetch(config: GMSend.XHRDetails, con: IGetSender, resultParam: RequestResultParams) {
+  //   const { url } = config;
+  //   const msgConn = con.getConnect();
+  //   if (!msgConn) {
+  //     throw new Error("CAT_fetch ERROR: msgConn is undefinded");
+  //   }
+  //   return fetch(url, {
+  //     method: config.method || "GET",
+  //     body: <any>config.data,
+  //     headers: config.headers,
+  //     redirect: config.redirect,
+  //     signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
+  //   }).then((resp) => {
+  //     let send = this.dealFetch(config, resp, 1);
+  //     switch (resp.type) {
+  //       case "opaqueredirect":
+  //         // 处理manual重定向
+  //         msgConn.sendMessage({
+  //           action: "onloadstart",
+  //           data: send,
+  //         });
+  //         send = this.dealFetch(config, resp, 2, resultParam);
+  //         msgConn.sendMessage({
+  //           action: "onreadystatechange",
+  //           data: send,
+  //         });
+  //         send.readyState = 4;
+  //         msgConn.sendMessage({
+  //           action: "onreadystatechange",
+  //           data: send,
+  //         });
+  //         msgConn.sendMessage({
+  //           action: "onload",
+  //           data: send,
+  //         });
+  //         msgConn.sendMessage({
+  //           action: "onloadend",
+  //           data: send,
+  //         });
+  //         return;
+  //     }
+  //     const reader = resp.body?.getReader();
+  //     if (!reader) {
+  //       throw new Error("read is not found");
+  //     }
+  //     const readData = ({ done, value }: { done: boolean; value?: Uint8Array }) => {
+  //       if (done) {
+  //         const data = this.dealFetch(config, resp, 4, resultParam);
+  //         data.responseHeaders = resultParam.responseHeader || data.responseHeaders;
+  //         msgConn.sendMessage({
+  //           action: "onreadystatechange",
+  //           data: data,
+  //         });
+  //         msgConn.sendMessage({
+  //           action: "onload",
+  //           data: data,
+  //         });
+  //         msgConn.sendMessage({
+  //           action: "onloadend",
+  //           data: data,
+  //         });
+  //       } else {
+  //         msgConn.sendMessage({
+  //           action: "onstream",
+  //           data: Array.from(value!),
+  //         });
+  //         reader.read().then(readData);
+  //       }
+  //     };
+  //     reader.read().then(readData);
+  //     send.responseHeaders = resultParam.responseHeader || send.responseHeaders;
+  //     msgConn.sendMessage({
+  //       action: "onloadstart",
+  //       data: send,
+  //     });
+  //     send.readyState = 2;
+  //     msgConn.sendMessage({
+  //       action: "onreadystatechange",
+  //       data: send,
+  //     });
+  //   });
+  // }
 
   @PermissionVerify.API({
     confirm: async (request: GMApiRequest<[GMSend.XHRDetails]>, sender: IGetSender) => {
@@ -753,12 +754,10 @@ export default class GMApi {
     // 先处理unsafe hearder
     // 关联自己生成的请求id与chrome.webRequest的请求id
     const requestId = 10000 + (await cacheInstance.incr("gmXhrRequestId", 1));
-    // 添加请求header
-    if (!param1.headers) {
-      param1.headers = {};
-    }
 
     // 处理cookiePartition
+    // 詳見 https://github.com/scriptscat/scriptcat/issues/392
+    // https://github.com/scriptscat/scriptcat/commit/3774aa3acebeadb6b08162625a9af29a9599fa96
     if (!param1.cookiePartition || typeof param1.cookiePartition !== "object") {
       param1.cookiePartition = {};
     }
@@ -767,8 +766,8 @@ export default class GMApi {
       param1.cookiePartition.topLevelSite = undefined;
     }
 
-    param1.headers["X-Scriptcat-GM-XHR-Request-Id"] = requestId.toString();
-    param1.headers = await this.buildDNRRule(requestId, param1, sender);
+    // 添加请求header
+    await this.buildDNRRule(requestId, param1, sender);
     const resultParam: RequestResultParams = {
       requestId,
       statusCode: 0,
@@ -790,10 +789,6 @@ export default class GMApi {
         this.gmXhrHeadersReceived.removeAllListeners("headersReceived:" + requestId);
       }
     );
-    if (param1.responseType === "stream" || param1.fetch || param1.redirect) {
-      // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
-      return this.CAT_fetch(param1, sender, resultParam);
-    }
     if (!sender.isType(GetSenderType.CONNECT)) {
       throw new Error("GM_xmlhttpRequest ERROR: sender is not MessageConnect");
     }
@@ -801,16 +796,37 @@ export default class GMApi {
     if (!msgConn) {
       throw new Error("GM_xmlhttpRequest ERROR: msgConn is undefined");
     }
+    if (param1.responseType === "stream" || param1.fetch || param1.redirect) {
+      // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
+      // return this.CAT_fetch(param1, sender, resultParam);
+      backgroundXhrAPI(
+        param1,
+        {
+          get finalUrl() {
+            return finalUrl;
+          },
+          get responseHeader() {
+            return resultParam.responseHeader;
+          },
+        },
+        msgConn
+      );
+      return;
+    }
     // 再发送到offscreen, 处理请求
     const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
     offscreenCon.onMessage((msg) => {
       // 发送到content
-      // 替换msg.data.responseHeaders
-      msg.data.responseHeaders = resultParam.responseHeader || msg.data.responseHeaders;
-      // 替换finalUrl
-      if (finalUrl) {
-        msg.data.finalUrl = finalUrl;
-      }
+      let data = msg.data;
+      data = {
+        ...data,
+        finalUrl: finalUrl || "", // 替换finalUrl
+        responseHeaders: resultParam.responseHeader || data.responseHeaders, // 替换msg.data.responseHeaders
+      };
+      msg = {
+        action: msg.action,
+        data: data,
+      } as TMessageCommAction;
       msgConn.sendMessage(msg);
     });
     msgConn.onDisconnect(() => {
@@ -1078,22 +1094,48 @@ export default class GMApi {
     // 替换掉windows下文件名的非法字符为 -
     const fileName = cleanFileName(params.name);
     // blob本地文件或显示指定downloadMode为"browser"则直接下载
-    if (params.url.startsWith("blob:") || params.downloadMode === "browser") {
+    const startDownload = (blobURL: string, respond: any) => {
+      if (!blobURL) {
+        msgConn.sendMessage({
+          action: "onerror",
+          data: respond,
+        });
+        throw new Error("GM_download ERROR: blobURL is not provided.");
+      }
       chrome.downloads.download(
         {
-          url: params.url,
+          url: blobURL,
           saveAs: params.saveAs,
           filename: fileName,
         },
-        () => {
+        (downloadId: number | undefined) => {
           const lastError = chrome.runtime.lastError;
+          let ok = true;
           if (lastError) {
             console.error("chrome.runtime.lastError in chrome.downloads.download:", lastError);
             // 下载API出现问题但继续执行
+            ok = false;
           }
-          msgConn.sendMessage({ action: "onload" });
+          if (downloadId === undefined) {
+            console.error("GM_download ERROR: API Failure for chrome.downloads.download.");
+            ok = false;
+          }
+          if (ok) {
+            msgConn.sendMessage({
+              action: "onload",
+              data: respond,
+            });
+          } else {
+            msgConn.sendMessage({
+              action: "onerror",
+              data: respond,
+            });
+          }
         }
       );
+    };
+    if (params.url.startsWith("blob:") || params.downloadMode === "browser") {
+      startDownload(params.url, null);
       return;
     }
     // 使用xhr下载blob,再使用download api创建下载
@@ -1109,17 +1151,17 @@ export default class GMApi {
         responseHeaders: xhr.responseHeaders,
       };
       switch (data.action) {
-        case "onload":
-          msgConn.sendMessage({
-            action: "onload",
-            data: respond,
-          });
-          chrome.downloads.download({
-            url: xhr.response,
-            saveAs: params.saveAs,
-            filename: fileName,
-          });
+        case "onload": {
+          const response = xhr.response;
+          let blobURL = "";
+          if (isThisBlobObj(response)) {
+            blobURL = URL.createObjectURL(response);
+          } else if (typeof response === "string") {
+            blobURL = response;
+          }
+          startDownload(blobURL, respond);
           break;
+        }
         case "onerror":
           msgConn.sendMessage({
             action: "onerror",
@@ -1131,7 +1173,7 @@ export default class GMApi {
           respond.lengthComputable = xhr.lengthComputable;
           respond.loaded = xhr.loaded;
           respond.total = xhr.total;
-          respond.totalSize = xhr.total;
+          respond.totalSize = xhr.total; // ??????
           msgConn.sendMessage({
             action: "onprogress",
             data: respond,
@@ -1142,9 +1184,15 @@ export default class GMApi {
             action: "ontimeout",
           });
           break;
+        case "onloadend":
+          msgConn.sendMessage({
+            action: "onloadend",
+            data: respond,
+          });
+          break;
       }
     });
-    return this.GM_xmlhttpRequest(
+    const ret = this.GM_xmlhttpRequest(
       {
         ...request,
         params: [
@@ -1162,6 +1210,10 @@ export default class GMApi {
       },
       new SenderConnect(mockConnect)
     );
+    msgConn.onDisconnect(() => {
+      // To be implemented
+    });
+    return ret;
   }
 
   @PermissionVerify.API()
@@ -1253,6 +1305,46 @@ export default class GMApi {
       reqOpt.push("extraHeaders");
       respOpt.push("extraHeaders");
     }
+
+    /*
+
+          // 1) Network-level errors (DNS/TLS/connection/aborts)
+      chrome.webRequest.onErrorOccurred.addListener((details) => {
+        // Examples: net::ERR_NAME_NOT_RESOLVED, net::ERR_CONNECTION_REFUSED, net::ERR_ABORTED
+        console.warn("[NET ERROR]", {
+          url: details.url,
+          error: details.error,
+          type: details.type,           // main_frame, xmlhttprequest, fetch, etc.
+          ip: details.ip,
+          fromCache: details.fromCache,
+          initiator: details.initiator, // who started it (tab/page/extension)
+          tabId: details.tabId
+        });
+      }, { urls: ["<all_urls>"] });
+
+      // 2) Inspect responses to spot CORS issues
+      chrome.webRequest.onHeadersReceived.addListener((details) => {
+        const headers = Object.fromEntries(
+          (details.responseHeaders || []).map(h => [h.name.toLowerCase(), h.value || ""])
+        );
+
+        // If this was a cross-origin XHR/fetch, check for ACAO/ACAC headers.
+        // (You can refine with details.initiator, tabId, and compare URL origins.)
+        const hasACAO = "access-control-allow-origin" in headers;
+        const hasACAC = "access-control-allow-credentials" in headers;
+
+        if (!hasACAO) {
+          console.info("[POSSIBLE CORS BLOCK]", {
+            url: details.url,
+            statusCode: details.statusCode,
+            missing: "Access-Control-Allow-Origin",
+            initiator: details.initiator,
+            tabId: details.tabId
+          });
+        }
+      }, { urls: ["<all_urls>"] }, ["responseHeaders"]);
+
+    */
     chrome.webRequest.onBeforeSendHeaders.addListener(
       (details) => {
         const lastError = chrome.runtime.lastError;
@@ -1266,7 +1358,7 @@ export default class GMApi {
           // 讲请求id与chrome.webRequest的请求id关联
           if (details.requestHeaders) {
             const requestId = details.requestHeaders.find((header) => header.name === "X-Scriptcat-GM-XHR-Request-Id");
-            if (requestId) {
+            if (requestId?.value) {
               this.cache.set("gmXhrRequest:" + details.requestId, requestId.value);
             }
           }
@@ -1294,19 +1386,17 @@ export default class GMApi {
             // 判断是否重定向
             let location = "";
             details.responseHeaders?.forEach((header) => {
-              if (header.name.toLowerCase() === "location") {
+              if (header?.name?.length === 8 && header.name.toLowerCase() === "location" && header.value?.length) {
                 // 重定向
-                if (header.value) {
-                  try {
-                    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Location
-                    // <url> May be relative to the request URL or an absolute URL.
-                    const url = new URL(header.value, details.url);
-                    if (url.href) {
-                      location = url.href;
-                    }
-                  } catch {
-                    // ignore
+                try {
+                  // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Location
+                  // <url> May be relative to the request URL or an absolute URL.
+                  const url = new URL(header.value, details.url);
+                  if (url.href) {
+                    location = url.href;
                   }
+                } catch {
+                  // ignore
                 }
               }
             });

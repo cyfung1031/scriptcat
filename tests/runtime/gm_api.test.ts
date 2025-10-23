@@ -3,7 +3,7 @@ import GMApi from "@App/app/service/content/gm_api";
 import { initTestGMApi } from "@Tests/utils";
 import { randomUUID } from "crypto";
 import { newMockXhr } from "mock-xmlhttprequest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const msg = initTestGMApi();
 
@@ -26,14 +26,10 @@ const script: Script = {
   checktime: 0,
 };
 
+const realXMLHttpRequest = global.XMLHttpRequest;
+
 beforeAll(async () => {
   await new ScriptDAO().save(script);
-});
-
-describe("GM xmlHttpRequest", () => {
-  const gmApi = new GMApi("serviceWorker", msg, <ScriptRunResource>{
-    uuid: script.uuid,
-  });
   const mockXhr = newMockXhr();
   mockXhr.onSend = async (request) => {
     switch (request.url) {
@@ -80,7 +76,17 @@ describe("GM xmlHttpRequest", () => {
     }
     return request.respond(200, {}, "test");
   };
-  global.XMLHttpRequest = mockXhr;
+  vi.stubGlobal("XMLHttpRequest", mockXhr);
+});
+
+afterAll(() => {
+  vi.stubGlobal("XMLHttpRequest", realXMLHttpRequest);
+});
+
+describe("GM xmlHttpRequest", () => {
+  const gmApi = new GMApi("serviceWorker", msg, <ScriptRunResource>{
+    uuid: script.uuid,
+  });
   it("get", () => {
     return new Promise<void>((resolve) => {
       gmApi.GM_xmlhttpRequest({
@@ -117,6 +123,7 @@ describe("GM xmlHttpRequest", () => {
         method: "GET",
         responseType: "json",
         onload: (resp) => {
+          console.log(1238, resp.response, resp.responseText);
           expect(resp.response).toBeUndefined();
           expect(resp.responseText).toBe("example");
           resolve();

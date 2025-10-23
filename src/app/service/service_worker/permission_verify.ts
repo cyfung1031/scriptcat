@@ -111,12 +111,18 @@ export default class PermissionVerify {
     this.permissionDAO.enableCache();
   }
 
+  noVerify<T>(_request: GMApiRequest<T>, _api: ApiValue, _sender: IGetSender) {
+    // 測試用
+    return false;
+  }
+
   // 验证是否有权限
   async verify<T>(request: GMApiRequest<T>, api: ApiValue, sender: IGetSender): Promise<boolean> {
     const { alias, link, confirm } = api.param;
     if (api.param.default) {
       return true;
     }
+    if (this.noVerify(request, api, sender)) return true;
     // 没有其它条件,从metadata.grant中判断
     const { grant } = request.script.metadata;
     if (!grant) {
@@ -178,6 +184,7 @@ export default class PermissionVerify {
     if (typeof confirm === "boolean") {
       return confirm;
     }
+    console.log(96921);
     const cacheKey = `${CACHE_KEY_PERMISSION}${request.script.uuid}:${confirm.permission}:${confirm.permissionValue || ""}`;
     // 从数据库中查询是否有此权限
     const ret = await cacheInstance.getOrSet(cacheKey, async () => {

@@ -7,7 +7,7 @@ import { type IMessageQueue } from "@Packages/message/message_queue";
 import { type Group } from "@Packages/message/server";
 import type { ResourceBackup } from "@App/pkg/backup/struct";
 import { isText } from "@App/pkg/utils/istextorbinary";
-import { blobToBase64, randNum } from "@App/pkg/utils/utils";
+import { blobToBase64, blobToUint8Array, randNum } from "@App/pkg/utils/utils";
 import { type TDeleteScript } from "../queue";
 import { calculateHashFromArrayBuffer } from "@App/pkg/utils/crypto";
 import { isBase64, parseUrlSRI } from "./utils";
@@ -264,7 +264,7 @@ export class ResourceService {
     const data = await resp.blob();
     const [hash, arrayBuffer, base64] = await Promise.all([
       this.calculateHash(data),
-      data.arrayBuffer(),
+      blobToUint8Array(data),
       blobToBase64(data),
     ]);
     const resource: Resource = {
