@@ -732,6 +732,7 @@ context a property which will be added to the response object
   const isBufferStream = details.responseType === "stream";
 
   const useFetch = isFetch || !!redirect || anonymous || isBufferStream;
+  console.log("useFetch", isFetch, !!redirect, anonymous, isBufferStream);
 
   const prepareXHR = async () => {
     let rawData =
@@ -823,8 +824,10 @@ context a property which will be added to the response object
       //   response = null;
       // }
       // }
+      console.log(1313000, xhr instanceof FetchXHR, eventType, xhr.responseType, xhr.readyState);
       if (!(xhr instanceof FetchXHR)) {
         const response = xhr.response;
+        console.log(1313001, eventType, xhr.responseType);
         if (xhr.readyState === 4 && eventType === "readystatechange") {
           console.log(1313002, eventType, xhr.responseType);
           if (xhr.responseType === "" || xhr.responseType === "text") {
@@ -855,6 +858,12 @@ context a property which will be added to the response object
           statusText: string;
           responseHeaders: string;
           error?: string; // sw handle?
+
+          useFetch: boolean,
+          eventType: string,
+          ok: boolean,
+          contentType: string,
+          error: undefined | string,
 
         */
 

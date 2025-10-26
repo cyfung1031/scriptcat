@@ -96,19 +96,19 @@ const urlToDocumentInContentPage = async (a: GMApi, url: string) => {
   return (<CustomEventMessage>a.message).getAndDelRelatedTarget(nodeId) as Document;
 };
 
-const urlToDocumentLocal = async (a: GMApi, url: string) => {
-  if (typeof XMLHttpRequest === "undefined") return urlToDocumentInContentPage(a, url);
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.responseType = "document";
-    xhr.open("GET", url);
-    xhr.onload = () => {
-      const doc = xhr.response instanceof Document ? xhr.response : null;
-      resolve(doc);
-    };
-    xhr.send();
-  });
-};
+// const urlToDocumentLocal = async (a: GMApi, url: string) => {
+//   if (typeof XMLHttpRequest === "undefined") return urlToDocumentInContentPage(a, url);
+//   return new Promise((resolve) => {
+//     const xhr = new XMLHttpRequest();
+//     xhr.responseType = "document";
+//     xhr.open("GET", url);
+//     xhr.onload = () => {
+//       const doc = xhr.response instanceof Document ? xhr.response : null;
+//       resolve(doc);
+//     };
+//     xhr.send();
+//   });
+// };
 
 // const strToDocument = async (a: GMApi, text: string, contentType: DOMParserSupportedType) => {
 //   if (typeof DOMParser === "function") {
@@ -861,6 +861,7 @@ export default class GMApi extends GM_Base {
   }
 
   static _GM_xmlhttpRequest(a: GMApi, details: GMTypes.XHRDetails, requirePromise: boolean) {
+    console.log(123005, details);
     if (a.isInvalidContext()) {
       return {
         retPromise: requirePromise ? Promise.reject("GM_xmlhttpRequest: Invalid Context") : null,
@@ -907,7 +908,7 @@ export default class GMApi extends GM_Base {
     if (details.nocache) {
       param.headers["Cache-Control"] = "no-cache";
     }
-    let connect: MessageConnect;
+    let connect: MessageConnect | null;
     const handler = async () => {
       // 处理数据
       if (details.data instanceof FormData) {
@@ -962,32 +963,43 @@ export default class GMApi extends GM_Base {
       const xhrType = param.responseType;
       const responseType = responseTypeOriginal; // 回傳用
 
+      console.log(377101, param);
+
       // 发送信息
       a.connect("GM_xmlhttpRequest", [param]).then((con) => {
         // 注意。在此 callback 裡，不應直接存取 param, 否則會影響 GC
         connect = con;
         const resultTexts = [] as string[];
         const resultBuffers = [] as Uint8Array<ArrayBuffer>[];
+        let finalResultBuffers: Uint8Array<ArrayBuffer> | null = null;
         const asyncTaskId = `${Date.now}:${Math.random()}`;
 
         let errorOccur: string | null = null;
         let response: unknown = null;
-        let responseText: string = "";
+        let responseText: string | undefined | false = "";
         let responseXML: unknown = null;
         let resultType = 0;
         if (readerStream) {
           response = readerStream;
+          responseText = undefined; // 兼容
+          responseXML = undefined; // 兼容
         }
         readerStream = undefined;
 
         const makeXHRCallbackParam = (
           res: {
+            //
             finalUrl: string;
             readyState: 0 | 4 | 2 | 3 | 1;
             status: number;
             statusText: string;
             responseHeaders: string;
             error?: string;
+            //
+            useFetch: boolean;
+            eventType: string;
+            ok: boolean;
+            contentType: string;
           } & Record<string, any>
         ) => {
           const param = {
@@ -1009,12 +1021,76 @@ export default class GMApi extends GM_Base {
             responseHeaders: res.responseHeaders as string,
             responseType: responseType as "text" | "arraybuffer" | "blob" | "json" | "document" | "stream" | "",
             get response() {
+              if (response === false) {
+                switch (responseTypeOriginal) {
+                  case "json": {
+                    const text = this.responseText;
+                    let o = undefined;
+                    try {
+                      o = JSON.parse(text);
+                    } catch {
+                      // ignored
+                    }
+                    response = o; // TM兼容 -> o : object | undefined
+                    break;
+                  }
+                  case "document": {
+                    response = this.responseXML;
+                    break;
+                  }
+                  case "arraybuffer": {
+                    finalResultBuffers ||= concatUint8(resultBuffers);
+                    const full = finalResultBuffers;
+                    response = full.buffer; // ArrayBuffer
+                    break;
+                  }
+                  case "blob": {
+                    finalResultBuffers ||= concatUint8(resultBuffers);
+                    const full = finalResultBuffers;
+                    const type = res.contentType || "application/octet-stream";
+                    response = new Blob([full], { type }); // Blob
+                    break;
+                  }
+                  default: {
+                    // text
+                    response = `${this.responseText}`;
+                    break;
+                  }
+                }
+              }
               return response as string | ArrayBuffer | Blob | Document | ReadableStream<Uint8Array> | null;
             },
             get responseXML() {
+              if (responseXML === false) {
+                const text = this.responseText;
+                if (
+                  ["application/xhtml+xml", "application/xml", "image/svg+xml", "text/html", "text/xml"].includes(
+                    res.contentType
+                  )
+                ) {
+                  responseXML = new DOMParser().parseFromString(text, res.contentType as DOMParserSupportedType);
+                } else {
+                  responseXML = new DOMParser().parseFromString(text, "text/xml");
+                }
+              }
               return responseXML as Document | null;
             },
             get responseText() {
+              if (responseTypeOriginal === "document") {
+                console.log(342, resultType, resultBuffers.length, resultTexts.length);
+              }
+              if (responseText === false) {
+                if (resultType === 2) {
+                  finalResultBuffers ||= concatUint8(resultBuffers);
+                  const buf = finalResultBuffers.buffer as ArrayBuffer;
+                  const decoder = new TextDecoder("utf-8");
+                  const text = decoder.decode(buf);
+                  responseText = text;
+                } else {
+                  // resultType === 3
+                  responseText = `${resultTexts.join("")}`;
+                }
+              }
               return responseText as string;
             },
             toString: () => "[object Object]", // follow TM
@@ -1028,24 +1104,38 @@ export default class GMApi extends GM_Base {
           return param;
         };
 
-        con.onMessage((data) => {
+        con.onMessage((msgData) => {
           stackAsyncTask(asyncTaskId, async () => {
-            if (data.code === -1) {
+            const data = msgData.data as Record<string, any> & {
+              //
+              finalUrl: string;
+              readyState: 0 | 4 | 2 | 3 | 1;
+              status: number;
+              statusText: string;
+              responseHeaders: string;
+              //
+              useFetch: boolean;
+              eventType: string;
+              ok: boolean;
+              contentType: string;
+              error: undefined | string;
+            };
+            if (msgData.code === -1) {
               // 处理错误
               LoggerCore.logger().error("GM_xmlhttpRequest error", {
-                code: data.code,
-                message: data.message,
+                code: msgData.code,
+                message: msgData.message,
               });
               if (details.onerror) {
                 details.onerror({
                   readyState: 4,
-                  error: data.message || "unknown",
+                  error: msgData.message || "unknown",
                 });
               }
               return;
             }
             // 处理返回
-            switch (data.action) {
+            switch (msgData.action) {
               case "reset_chunk_arraybuffer":
               case "reset_chunk_blob":
               case "reset_chunk_buffer": {
@@ -1059,7 +1149,7 @@ export default class GMApi extends GM_Base {
                 break;
               }
               case "append_chunk_stream": {
-                const d = data.data.chunk as string;
+                const d = msgData.data.chunk as string;
                 const u8 = base64ToUint8(d);
                 resultBuffers.push(u8);
                 controller?.enqueue(base64ToUint8(d));
@@ -1069,7 +1159,7 @@ export default class GMApi extends GM_Base {
               case "append_chunk_arraybuffer":
               case "append_chunk_blob":
               case "append_chunk_buffer": {
-                const d = data.data.chunk as string;
+                const d = msgData.data.chunk as string;
                 const u8 = base64ToUint8(d);
                 resultBuffers.push(u8);
                 resultType = 2;
@@ -1078,16 +1168,16 @@ export default class GMApi extends GM_Base {
               case "append_chunk_document":
               case "append_chunk_json":
               case "append_chunk_text": {
-                const d = data.data.chunk as string;
+                const d = msgData.data.chunk as string;
                 resultTexts.push(d);
                 resultType = 3;
                 break;
               }
               case "onload":
-                details.onload?.(makeXHRCallbackParam(data.data));
+                details.onload?.(makeXHRCallbackParam(data));
                 break;
               case "onloadend": {
-                const xhrReponse = { ...data.data, response, responseText, responseXML, responseType };
+                const xhrReponse = makeXHRCallbackParam(data);
                 details.onloadend?.(xhrReponse);
                 if (errorOccur === null) {
                   retPromiseResolve?.(xhrReponse);
@@ -1097,25 +1187,38 @@ export default class GMApi extends GM_Base {
                 break;
               }
               case "onloadstart":
-                details.onloadstart?.(makeXHRCallbackParam(data.data));
+                details.onloadstart?.(makeXHRCallbackParam(data));
                 break;
               case "onprogress": {
                 if (details.onprogress) {
                   if (!xhrType || xhrType === "text") {
-                    responseText = resultTexts.join("");
-                    response = responseText;
+                    responseText = false; // 設為false 表示需要更新。在 get setter 中更新
+                    response = false; // 設為false 表示需要更新。在 get setter 中更新
+                    responseXML = false; // 設為false 表示需要更新。在 get setter 中更新
                   }
-                  details.onprogress?.({ ...data.data, response, responseText, responseXML, responseType });
+                  const res = {
+                    ...makeXHRCallbackParam(data),
+                    lengthComputable: data.lengthComputable as boolean,
+                    loaded: data.loaded as number,
+                    total: data.total as number,
+                    done: data.loaded,
+                    totalSize: data.total,
+                  };
+                  details.onprogress?.(res);
                 }
                 break;
               }
               case "onreadystatechange": {
-                if (data.data.readyState === 4 && data.data.ok) {
+                if (data.readyState === 4 && data.ok) {
                   if (resultType === 1) {
                     // stream type
                     controller = undefined; // GC用
                   } else if (resultType === 2) {
                     // buffer type
+                    responseText = false; // 設為false 表示需要更新。在 get setter 中更新
+                    response = false; // 設為false 表示需要更新。在 get setter 中更新
+                    responseXML = false; // 設為false 表示需要更新。在 get setter 中更新
+                    /*
                     if (xhrType === "blob") {
                       const full = concatUint8(resultBuffers);
                       const type = data.data.contentType || "application/octet-stream";
@@ -1130,8 +1233,14 @@ export default class GMApi extends GM_Base {
                       const full = concatUint8(resultBuffers);
                       response = full.buffer; // ArrayBuffer
                     }
+                      */
                   } else if (resultType === 3) {
                     // string type
+
+                    responseText = false; // 設為false 表示需要更新。在 get setter 中更新
+                    response = false; // 設為false 表示需要更新。在 get setter 中更新
+                    responseXML = false; // 設為false 表示需要更新。在 get setter 中更新
+                    /*
                     if (xhrType === "json") {
                       const full = resultTexts.join("");
                       try {
@@ -1160,30 +1269,31 @@ export default class GMApi extends GM_Base {
                       response = full;
                       responseText = full;
                     }
+                      */
                   }
                 }
-                details.onreadystatechange?.(makeXHRCallbackParam(data.data));
+                details.onreadystatechange?.(makeXHRCallbackParam(data));
                 break;
               }
               case "ontimeout":
                 errorOccur = "TimeoutError";
-                details.ontimeout?.(makeXHRCallbackParam(data.data));
+                details.ontimeout?.(makeXHRCallbackParam(data));
                 break;
               case "onerror":
-                data.data.error ||= "Unknown Error";
-                errorOccur = data.data.error;
-                details.onerror?.(makeXHRCallbackParam(data.data) as GMXHRResponseTypeWithError);
+                data.error ||= "Unknown Error";
+                errorOccur = data.error;
+                details.onerror?.(makeXHRCallbackParam(data) as GMXHRResponseTypeWithError);
                 break;
               case "onabort":
                 errorOccur = "AbortError";
-                details.onabort?.(makeXHRCallbackParam(data.data));
+                details.onabort?.(makeXHRCallbackParam(data));
                 break;
-              case "onstream":
-                controller?.enqueue(new Uint8Array(data.data));
-                break;
+              // case "onstream":
+              //   controller?.enqueue(new Uint8Array(data));
+              //   break;
               default:
                 LoggerCore.logger().warn("GM_xmlhttpRequest resp is error", {
-                  data,
+                  data: msgData,
                 });
                 break;
             }
@@ -1198,6 +1308,7 @@ export default class GMApi extends GM_Base {
       abort: () => {
         if (connect) {
           connect.disconnect();
+          connect = null;
         }
       },
     };

@@ -748,6 +748,7 @@ export default class GMApi {
   })
   async GM_xmlhttpRequest(request: GMApiRequest<[GMSend.XHRDetails?]>, sender: IGetSender) {
     const param1 = request.params[0];
+    console.log(377102, param1);
     if (!param1) {
       throw new Error("param is failed");
     }

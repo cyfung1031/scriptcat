@@ -8,57 +8,82 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
   const settings = {
     onDataReceived: (param: { chunk: boolean; type: string; data: any }) => {
       stackAsyncTask(taskId, async () => {
-        let buf: Uint8Array<ArrayBufferLike> | undefined;
-        if (isThisBlobObj(param.data)) {
-          buf = await param.data.bytes();
-        } else if (param.data instanceof Uint8Array) {
-          buf = param.data;
-        }
-        if (buf instanceof Uint8Array) {
-          const d = buf as Uint8Array<ArrayBuffer>;
-          const chunks = chunkUint8(d);
-          if (!param.chunk) {
-            const msg: TMessageCommAction = {
-              action: `reset_chunk_${param.type}`,
-              data: {},
-            };
-            msgConn.sendMessage(msg);
+        try {
+          let buf: Uint8Array<ArrayBufferLike> | undefined;
+          if (isThisBlobObj(param.data)) {
+            const arrayBuffer = await param.data.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            buf = bytes;
+          } else if (param.data instanceof Uint8Array) {
+            buf = param.data;
           }
-          for (const chunk of chunks) {
-            const msg: TMessageCommAction = {
-              action: `append_chunk_${param.type}`,
-              data: {
-                chunk: uint8ToBase64(chunk),
-              },
-            };
-            msgConn.sendMessage(msg);
-          }
-        } else if (typeof param.data === "string") {
-          const d = param.data as string;
-          const c = 2 * 1024 * 1024;
-          if (!param.chunk) {
-            const msg: TMessageCommAction = {
-              action: `reset_chunk_${param.type}`,
-              data: {},
-            };
-            msgConn.sendMessage(msg);
-          }
-          for (let i = 0, l = d.length; i < l; i += c) {
-            const chunk = d.substring(i, i + c);
-            if (chunk.length) {
+          if (buf instanceof Uint8Array) {
+            const d = buf as Uint8Array<ArrayBuffer>;
+            const chunks = chunkUint8(d);
+            if (!param.chunk) {
+              const msg: TMessageCommAction = {
+                action: `reset_chunk_${param.type}`,
+                data: {},
+              };
+              console.log(7001, msg);
+              msgConn.sendMessage(msg);
+            }
+            for (const chunk of chunks) {
               const msg: TMessageCommAction = {
                 action: `append_chunk_${param.type}`,
                 data: {
-                  chunk: chunk,
+                  chunk: uint8ToBase64(chunk),
                 },
               };
+              console.log(7002, msg);
               msgConn.sendMessage(msg);
             }
+          } else if (typeof param.data === "string") {
+            const d = param.data as string;
+            const c = 2 * 1024 * 1024;
+            if (!param.chunk) {
+              const msg: TMessageCommAction = {
+                action: `reset_chunk_${param.type}`,
+                data: {},
+              };
+              console.log(7003, msg);
+              msgConn.sendMessage(msg);
+            }
+            for (let i = 0, l = d.length; i < l; i += c) {
+              const chunk = d.substring(i, i + c);
+              if (chunk.length) {
+                const msg: TMessageCommAction = {
+                  action: `append_chunk_${param.type}`,
+                  data: {
+                    chunk: chunk,
+                  },
+                };
+                console.log(7004, msg);
+                msgConn.sendMessage(msg);
+              }
+            }
           }
+        } catch (e: any) {
+          console.error(e);
         }
       });
     },
-    callback: (result: Record<string, any>) => {
+    callback: (
+      result: Record<string, any> & {
+        //
+        finalUrl: string;
+        readyState: 0 | 4 | 2 | 3 | 1;
+        status: number;
+        statusText: string;
+        responseHeaders: string;
+        //
+        useFetch: boolean;
+        eventType: string;
+        ok: boolean;
+        contentType: string;
+        error: undefined | string;
+      }
+    ) => {
       const data = {
         ...result,
         finalUrl: inRef.finalUrl,
@@ -69,6 +94,7 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
         data: data,
       };
       stackAsyncTask(taskId, async () => {
+        console.log(8001, msg);
         msgConn.sendMessage(msg);
       });
     },
