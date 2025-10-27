@@ -353,12 +353,12 @@ export class FetchXHR {
 
     // Setup timeout if specified
     if (this.timeout > 0) {
-      this.timeoutId = window.setTimeout(() => {
+      this.timeoutId = setTimeout(() => {
         if (this.controller) {
           this.timedOut = true;
           this.controller.abort();
         }
-      }, this.timeout);
+      }, this.timeout) as unknown as number;
     }
 
     try {
@@ -400,9 +400,9 @@ export class FetchXHR {
       const ctI = ct.indexOf("charset=");
       let encoding = "utf-8"; // fetch defaults are UTF-8
       if (ctI >= 0) {
-        let ctJ = ct.indexOf(";", ctI);
+        let ctJ = ct.indexOf(";", ctI + 8);
         ctJ = ctJ > ctI ? ctJ : ct.length;
-        encoding = ct.substring(ctI, ctJ).trim() || encoding;
+        encoding = ct.substring(ctI + 8, ctJ).trim() || encoding;
       }
 
       this.readyState = FetchXHR.HEADERS_RECEIVED;
@@ -449,7 +449,7 @@ export class FetchXHR {
       let streamReadable;
       if (res.body === null) throw new Error("Response Body is null");
       if (textDecoderStream) {
-        streamReadable = res.body?.pipeThrough(new TextDecoderStream(encoding));
+        streamReadable = res.body?.pipeThrough(textDecoderStream);
         if (!streamReadable) throw new Error("streamReadable is undefined.");
       } else {
         streamReader = res.body?.getReader();

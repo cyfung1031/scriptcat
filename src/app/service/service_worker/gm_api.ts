@@ -35,6 +35,8 @@ import { type TGMKeyValue } from "@App/app/repo/value";
 import { createObjectURL } from "../offscreen/client";
 import { backgroundXhrAPI } from "./gm_xhr_api";
 
+const askUnlistedConnect = false;
+
 // GMApi,处理脚本的GM API调用请求
 
 type RequestResultParams = {
@@ -728,6 +730,9 @@ export default class GMApi {
       const url = new URL(config.url);
       if (isConnectMatched(request.script.metadata.connect, url, sender)) {
         return true;
+      }
+      if (!askUnlistedConnect) {
+        return false;
       }
       const metadata: { [key: string]: string } = {};
       metadata[i18next.t("script_name")] = i18nName(request.script);
