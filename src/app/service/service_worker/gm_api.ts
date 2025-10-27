@@ -797,7 +797,19 @@ export default class GMApi {
     if (!msgConn) {
       throw new Error("GM_xmlhttpRequest ERROR: msgConn is undefined");
     }
-    if (param1.responseType === "stream" || param1.fetch || param1.redirect) {
+    let useFetch;
+    {
+      const anonymous = param1.anonymous ?? param1.mozAnon ?? false;
+
+      const redirect = param1.redirect;
+
+      const isFetch = param1.fetch ?? false;
+
+      const isBufferStream = param1.responseType === "stream";
+
+      useFetch = isFetch || !!redirect || anonymous || isBufferStream;
+    }
+    if (useFetch) {
       // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
       // return this.CAT_fetch(param1, sender, resultParam);
       backgroundXhrAPI(

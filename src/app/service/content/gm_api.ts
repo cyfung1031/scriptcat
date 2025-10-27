@@ -955,10 +955,21 @@ export default class GMApi extends GM_Base {
             controller = ctrl;
           },
         });
-      }
-      // document类型读取blob,然后在content页转化为document对象
-      if (responseTypeOriginal === "document") {
-        param.responseType = "blob";
+      } else {
+        // document类型读取blob,然后在content页转化为document对象
+        switch (responseTypeOriginal) {
+          case "arraybuffer":
+          case "blob":
+            param.responseType = "arraybuffer";
+            break;
+          case "document":
+          case "json":
+          case "":
+          case "text":
+          default:
+            param.responseType = "text";
+            break;
+        }
       }
       const xhrType = param.responseType;
       const responseType = responseTypeOriginal; // 回傳用

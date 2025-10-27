@@ -10,13 +10,17 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
       stackAsyncTask(taskId, async () => {
         try {
           let buf: Uint8Array<ArrayBufferLike> | undefined;
+          console.log(31812, param.data, param);
           if (isThisBlobObj(param.data)) {
             const arrayBuffer = await param.data.arrayBuffer();
             const bytes = new Uint8Array(arrayBuffer);
             buf = bytes;
           } else if (param.data instanceof Uint8Array) {
             buf = param.data;
+          } else if (param.data instanceof ArrayBuffer) {
+            buf = new Uint8Array(param.data);
           }
+
           if (buf instanceof Uint8Array) {
             const d = buf as Uint8Array<ArrayBuffer>;
             const chunks = chunkUint8(d);

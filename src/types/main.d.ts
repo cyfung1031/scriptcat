@@ -51,6 +51,7 @@ declare namespace GMSend {
     responseType?: "" | "text" | "arraybuffer" | "blob" | "json" | "document" | "stream";
     overrideMimeType?: string;
     anonymous?: boolean;
+    mozAnon?: boolean;
     fetch?: boolean;
     user?: string;
     password?: string;
