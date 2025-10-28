@@ -92,7 +92,7 @@ export default class GMApi {
     const con = sender.getConnect(); // con can be undefined
     if (!con) throw new Error("offscreen xmlHttpRequest: Connection is undefined");
     console.log(38812, details);
-    backgroundXhrAPI(details, { finalUrl: "", responseHeader: null }, con);
+    backgroundXhrAPI(details, { finalUrl: "", responseHeaders: null }, con);
   }
 
   // async xmlHttpRequest(details: GMSend.XHRDetails, sender: IGetSender) {

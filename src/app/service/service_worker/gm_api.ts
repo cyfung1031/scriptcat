@@ -36,13 +36,28 @@ import { createObjectURL } from "../offscreen/client";
 import { backgroundXhrAPI } from "./gm_xhr_api";
 
 const askUnlistedConnect = false;
+const askConnectStar = true;
+
+const myRequests = new Map<string, string>();
+const redirectedUrls = new Map<string, string>();
+const headersReceivedMap = new Map<
+  string,
+  { responseHeaders: chrome.webRequest.HttpHeader[] | undefined | null; statusCode: number | null }
+>();
+const headerModifierMap = new Map<
+  string,
+  {
+    rule: chrome.declarativeNetRequest.Rule;
+    redirectNotManual: boolean;
+  }
+>();
 
 // GMApi,处理脚本的GM API调用请求
 
 type RequestResultParams = {
-  requestId: number;
   statusCode: number;
-  responseHeader: string;
+  responseHeaders: string;
+  finalUrl: string;
 };
 
 type OnBeforeSendHeadersOptions = `${chrome.webRequest.OnBeforeSendHeadersOptions}`;
@@ -109,7 +124,11 @@ export const checkHasUnsafeHeaders = (key: string) => {
   return false;
 };
 
-export const isConnectMatched = (metadataConnect: string[] | undefined, reqURL: URL, sender: IGetSender) => {
+export const getConnectMatched = (
+  metadataConnect: string[] | undefined,
+  reqURL: URL,
+  sender: IGetSender
+): 0 | 1 | 2 | 3 => {
   if (metadataConnect?.length) {
     for (let i = 0, l = metadataConnect.length; i < l; i += 1) {
       const lowerMetaConnect = metadataConnect[i].toLowerCase();
@@ -123,15 +142,17 @@ export const isConnectMatched = (metadataConnect: string[] | undefined, reqURL: 
             // ignore
           }
           if (senderURLObject) {
-            if (reqURL.hostname === senderURLObject.hostname) return true;
+            if (reqURL.hostname === senderURLObject.hostname) return 3;
           }
         }
-      } else if (lowerMetaConnect === "*" || `.${reqURL.hostname}`.endsWith(`.${lowerMetaConnect}`)) {
-        return true;
+      } else if (lowerMetaConnect === "*") {
+        return 1;
+      } else if (`.${reqURL.hostname}`.endsWith(`.${lowerMetaConnect}`)) {
+        return 2;
       }
     }
   }
-  return false;
+  return 0;
 };
 
 type NotificationData = {
@@ -229,7 +250,7 @@ export default class GMApi {
         url.host = detail.domain || "";
         url.hostname = detail.domain || "";
       }
-      if (!isConnectMatched(request.script.metadata.connect, url, sender)) {
+      if (getConnectMatched(request.script.metadata.connect, url, sender) === 0) {
         throw new Error("hostname must be in the definition of connect");
       }
       const metadata: { [key: string]: string } = {};
@@ -484,39 +505,37 @@ export default class GMApi {
     }
   }
 
-  // 有一些操作需要同步，就用Map作为缓存
-  cache = new Map<string, any>();
-
   // 根据header生成dnr规则
-  async buildDNRRule(requestId: number, params: GMSend.XHRDetails, sender: IGetSender): Promise<boolean> {
+  async buildDNRRule(markerID: string, params: GMSend.XHRDetails, sender: IGetSender): Promise<boolean> {
     // 添加请求header
     const headers = params.headers || (params.headers = {});
     const { anonymous, cookie } = params;
-    headers["X-Scriptcat-GM-XHR-Request-Id"] = `${requestId}`;
+    // 采用legacy命名方式，以大写，X- 开头
+    // HTTP/1.1 and HTTP/2
+    // https://www.rfc-editor.org/rfc/rfc7540#section-8.1.2
+    // https://datatracker.ietf.org/doc/html/rfc6648
+    // All header names in HTTP/2 are lower case, and CF will convert if needed.
+    // All headers comparisons in HTTP/1.1 should be case insensitive.
+    headers["X-SC-Request-Marker"] = `${markerID}`;
 
     // 如果header中没有origin就设置为空字符串，如果有origin就不做处理，注意处理大小写
-    if (!("Origin" in headers) && !("origin" in headers)) {
+    if (typeof headers["Origin"] !== "string" && typeof headers["origin"] !== "string") {
       headers["Origin"] = "";
     }
 
-    const requestHeaders = [
-      {
-        header: "X-Scriptcat-GM-XHR-Request-Id",
-        operation: "remove",
-      },
-    ] as chrome.declarativeNetRequest.ModifyHeaderInfo[];
+    const modifyReqHeaders = [] as chrome.declarativeNetRequest.ModifyHeaderInfo[];
     // 判断是否是anonymous
     if (anonymous) {
       // 如果是anonymous，并且有cookie，则设置为自定义的cookie
       if (cookie) {
-        requestHeaders.push({
+        modifyReqHeaders.push({
           header: "cookie",
           operation: "set",
           value: cookie,
         });
       } else {
         // 否则删除cookie
-        requestHeaders.push({
+        modifyReqHeaders.push({
           header: "cookie",
           operation: "remove",
         });
@@ -556,65 +575,63 @@ export default class GMApi {
       }
     }
 
-    for (const key of Object.keys(headers)) {
-      /** 请求的header的值 */
-      const headerValue = headers[key];
-      let deleteHeader = false;
-      if (headerValue) {
-        if (checkHasUnsafeHeaders(key)) {
-          requestHeaders.push({
-            header: key,
-            operation: "set",
-            value: headerValue.toString(),
-          });
-          deleteHeader = true;
-        }
-      } else {
-        requestHeaders.push({
+    /** 请求的header的值 */
+    for (const [key, headerValue] of Object.entries(headers)) {
+      if (!headerValue) {
+        modifyReqHeaders.push({
           header: key,
           operation: "remove",
         });
-        deleteHeader = true;
+        delete headers[key];
+      } else if (checkHasUnsafeHeaders(key)) {
+        modifyReqHeaders.push({
+          header: key,
+          operation: "set",
+          value: headerValue.toString(),
+        });
+        delete headers[key];
       }
-      deleteHeader && delete headers[key];
     }
 
-    // const tabs = await chrome.tabs.query({});
-    // const excludedTabIds: number[] = [];
-    // for (const tab of tabs) {
-    //   if (tab.id) {
-    //     excludedTabIds.push(tab.id);
-    //   }
-    // }
-    let requestMethod = (params.method || "GET").toLowerCase() as chrome.declarativeNetRequest.RequestMethod;
-    if (!supportedRequestMethods.has(requestMethod)) {
-      requestMethod = "other" as chrome.declarativeNetRequest.RequestMethod;
-    }
+    if (modifyReqHeaders.length > 0) {
+      // const tabs = await chrome.tabs.query({});
+      // const excludedTabIds: number[] = [];
+      // for (const tab of tabs) {
+      //   if (tab.id) {
+      //     excludedTabIds.push(tab.id);
+      //   }
+      // }
+      let requestMethod = (params.method || "GET").toLowerCase() as chrome.declarativeNetRequest.RequestMethod;
+      if (!supportedRequestMethods.has(requestMethod)) {
+        requestMethod = "other" as chrome.declarativeNetRequest.RequestMethod;
+      }
+      const redirectNotManual = params.redirect !== "manual";
 
-    const rule = {
-      id: requestId,
-      action: {
-        type: "modifyHeaders",
-        requestHeaders: requestHeaders,
-      },
-      priority: 1,
-      condition: {
-        resourceTypes: ["xmlhttprequest"],
-        urlFilter: params.url,
-        requestMethods: [requestMethod],
-        // excludedTabIds: excludedTabIds,
-        tabIds: [chrome.tabs.TAB_ID_NONE], // 只限於後台 service_worker / offscreen
-      },
-    } as chrome.declarativeNetRequest.Rule;
-    this.cache.set("dnrRule:" + requestId.toString(), rule);
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [requestId],
-      addRules: [rule],
-    });
+      // 使用 cacheInstance 避免SW重启造成重复 DNR Rule ID
+      const ruleId = 10000 + (await cacheInstance.incr("gmXhrRequestId", 1));
+      const rule = {
+        id: ruleId,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: modifyReqHeaders,
+        },
+        priority: 1,
+        condition: {
+          resourceTypes: ["xmlhttprequest"],
+          urlFilter: params.url,
+          requestMethods: [requestMethod],
+          // excludedTabIds: excludedTabIds,
+          tabIds: [chrome.tabs.TAB_ID_NONE], // 只限于后台 service_worker / offscreen
+        },
+      } as chrome.declarativeNetRequest.Rule;
+      headerModifierMap.set(markerID, { rule, redirectNotManual });
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [ruleId],
+        addRules: [rule],
+      });
+    }
     return true;
   }
-
-  gmXhrHeadersReceived = new EventEmitter<string, any>();
 
   // dealFetch(
   //   config: GMSend.XHRDetails,
@@ -636,7 +653,7 @@ export default class GMApi {
   //   };
   //   if (resultParam) {
   //     respond.status = respond.status || resultParam.statusCode;
-  //     respond.responseHeaders = resultParam.responseHeader || respond.responseHeaders;
+  //     respond.responseHeaders = resultParam.responseHeaders || respond.responseHeaders;
   //   }
   //   return respond;
   // }
@@ -689,7 +706,7 @@ export default class GMApi {
   //     const readData = ({ done, value }: { done: boolean; value?: Uint8Array }) => {
   //       if (done) {
   //         const data = this.dealFetch(config, resp, 4, resultParam);
-  //         data.responseHeaders = resultParam.responseHeader || data.responseHeaders;
+  //         data.responseHeaders = resultParam.responseHeaders || data.responseHeaders;
   //         msgConn.sendMessage({
   //           action: "onreadystatechange",
   //           data: data,
@@ -711,7 +728,7 @@ export default class GMApi {
   //       }
   //     };
   //     reader.read().then(readData);
-  //     send.responseHeaders = resultParam.responseHeader || send.responseHeaders;
+  //     send.responseHeaders = resultParam.responseHeaders || send.responseHeaders;
   //     msgConn.sendMessage({
   //       action: "onloadstart",
   //       data: send,
@@ -728,11 +745,19 @@ export default class GMApi {
     confirm: async (request: GMApiRequest<[GMSend.XHRDetails]>, sender: IGetSender) => {
       const config = <GMSend.XHRDetails>request.params[0];
       const url = new URL(config.url);
-      if (isConnectMatched(request.script.metadata.connect, url, sender)) {
-        return true;
-      }
-      if (!askUnlistedConnect) {
-        return false;
+      const connectMatched = getConnectMatched(request.script.metadata.connect, url, sender);
+      if (connectMatched === 1) {
+        if (!askConnectStar) {
+          return true;
+        }
+      } else {
+        if (connectMatched > 0) {
+          return true;
+        }
+        if (!askUnlistedConnect) {
+          request.extraCode = 0x30;
+          return false;
+        }
       }
       const metadata: { [key: string]: string } = {};
       metadata[i18next.t("script_name")] = i18nName(request.script);
@@ -752,49 +777,6 @@ export default class GMApi {
     alias: ["GM.xmlHttpRequest"],
   })
   async GM_xmlhttpRequest(request: GMApiRequest<[GMSend.XHRDetails?]>, sender: IGetSender) {
-    const param1 = request.params[0];
-    console.log(377102, param1);
-    if (!param1) {
-      throw new Error("param is failed");
-    }
-    // 先处理unsafe hearder
-    // 关联自己生成的请求id与chrome.webRequest的请求id
-    const requestId = 10000 + (await cacheInstance.incr("gmXhrRequestId", 1));
-
-    // 处理cookiePartition
-    // 詳見 https://github.com/scriptscat/scriptcat/issues/392
-    // https://github.com/scriptscat/scriptcat/commit/3774aa3acebeadb6b08162625a9af29a9599fa96
-    if (!param1.cookiePartition || typeof param1.cookiePartition !== "object") {
-      param1.cookiePartition = {};
-    }
-    if (typeof param1.cookiePartition.topLevelSite !== "string") {
-      // string | undefined
-      param1.cookiePartition.topLevelSite = undefined;
-    }
-
-    // 添加请求header
-    await this.buildDNRRule(requestId, param1, sender);
-    const resultParam: RequestResultParams = {
-      requestId,
-      statusCode: 0,
-      responseHeader: "",
-    };
-    let finalUrl = "";
-    // 等待response
-    this.cache.set("gmXhrRequest:params:" + requestId, {
-      redirect: param1.redirect,
-    });
-    this.gmXhrHeadersReceived.addListener(
-      "headersReceived:" + requestId,
-      (details: chrome.webRequest.OnHeadersReceivedDetails) => {
-        details.responseHeaders?.forEach((header) => {
-          resultParam.responseHeader += header.name + ": " + header.value + "\n";
-        });
-        resultParam.statusCode = details.statusCode;
-        finalUrl = this.cache.get("gmXhrRequest:finalUrl:" + requestId);
-        this.gmXhrHeadersReceived.removeAllListeners("headersReceived:" + requestId);
-      }
-    );
     if (!sender.isType(GetSenderType.CONNECT)) {
       throw new Error("GM_xmlhttpRequest ERROR: sender is not MessageConnect");
     }
@@ -802,55 +784,141 @@ export default class GMApi {
     if (!msgConn) {
       throw new Error("GM_xmlhttpRequest ERROR: msgConn is undefined");
     }
-    let useFetch;
-    {
-      const anonymous = param1.anonymous ?? param1.mozAnon ?? false;
-
-      const redirect = param1.redirect;
-
-      const isFetch = param1.fetch ?? false;
-
-      const isBufferStream = param1.responseType === "stream";
-
-      useFetch = isFetch || !!redirect || anonymous || isBufferStream;
-    }
-    if (useFetch) {
-      // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
-      // return this.CAT_fetch(param1, sender, resultParam);
-      backgroundXhrAPI(
-        param1,
-        {
-          get finalUrl() {
-            return finalUrl;
-          },
-          get responseHeader() {
-            return resultParam.responseHeader;
-          },
+    const throwErrorFn = (error: string) => {
+      msgConn.sendMessage({
+        action: "onerror",
+        data: {
+          error: `${error}`,
         },
-        msgConn
-      );
-      return;
+      });
+      return new Error(`${error}`);
+    };
+    if (request.extraCode === 0x30) {
+      throw throwErrorFn("unlistedConnect");
     }
-    // 再发送到offscreen, 处理请求
-    const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
-    offscreenCon.onMessage((msg) => {
-      // 发送到content
-      let data = msg.data;
-      data = {
-        ...data,
-        finalUrl: finalUrl || "", // 替换finalUrl
-        responseHeaders: resultParam.responseHeader || data.responseHeaders, // 替换msg.data.responseHeaders
+    const param1 = request.params[0];
+    console.log(377102, param1);
+    if (!param1) {
+      throw throwErrorFn("param is failed");
+    }
+    try {
+      // 先处理unsafe hearder
+      // 关联自己生成的请求id与chrome.webRequest的请求id
+      const u1 = Math.floor(Date.now()).toString(36);
+      const u2 = Math.floor(Math.random() * 4241670967279938 + 645564536402193).toString(36);
+      const markerID = `MARKER::${u1}_${u2}`;
+
+      // 处理cookiePartition
+      // 详见 https://github.com/scriptscat/scriptcat/issues/392
+      // https://github.com/scriptscat/scriptcat/commit/3774aa3acebeadb6b08162625a9af29a9599fa96
+      if (!param1.cookiePartition || typeof param1.cookiePartition !== "object") {
+        param1.cookiePartition = {};
+      }
+      if (typeof param1.cookiePartition.topLevelSite !== "string") {
+        // string | undefined
+        param1.cookiePartition.topLevelSite = undefined;
+      }
+
+      // 添加请求header
+      await this.buildDNRRule(markerID, param1, sender);
+      let resultParamStatusCode = 0;
+      let resultParamResponseHeader = "";
+      let resultParamFinalUrl = "";
+      const resultParam: RequestResultParams = {
+        get statusCode() {
+          const responsed = headersReceivedMap.get(markerID);
+          if (responsed && typeof responsed.statusCode === "number") {
+            resultParamStatusCode = responsed.statusCode;
+            responsed.statusCode = null;
+          }
+          return resultParamStatusCode;
+        },
+        get responseHeaders() {
+          const responsed = headersReceivedMap.get(markerID);
+          if (responsed && responsed.responseHeaders) {
+            let s = "";
+            for (const h of responsed.responseHeaders) {
+              s += `${h.name}: ${h.value}\n`;
+            }
+            resultParamResponseHeader = s;
+            responsed.responseHeaders = null;
+          }
+          return resultParamResponseHeader;
+        },
+        get finalUrl() {
+          resultParamFinalUrl = redirectedUrls.get(markerID) || "";
+          return resultParamFinalUrl;
+        },
       };
-      msg = {
-        action: msg.action,
-        data: data,
-      } as TMessageCommAction;
-      msgConn.sendMessage(msg);
-    });
-    msgConn.onDisconnect(() => {
-      // 关闭连接
-      offscreenCon.disconnect();
-    });
+      // let finalUrl = "";
+      // 等待response
+
+      let useFetch;
+      {
+        const anonymous = param1.anonymous ?? param1.mozAnon ?? false;
+
+        const redirect = param1.redirect;
+
+        const isFetch = param1.fetch ?? false;
+
+        const isBufferStream = param1.responseType === "stream";
+
+        useFetch = isFetch || !!redirect || anonymous || isBufferStream;
+      }
+      const loadendCleanUp = () => {
+        redirectedUrls.delete(markerID);
+        const reqId = myRequests.get(markerID);
+        if (reqId) myRequests.delete(reqId);
+        myRequests.delete(markerID);
+        headersReceivedMap.delete(markerID);
+        headerModifierMap.delete(markerID);
+      };
+      if (useFetch) {
+        // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
+        // return this.CAT_fetch(param1, sender, resultParam);
+        backgroundXhrAPI(
+          param1,
+          {
+            get finalUrl() {
+              return resultParam.finalUrl;
+            },
+            get responseHeaders() {
+              return resultParam.responseHeaders;
+            },
+            loadendCleanUp() {
+              loadendCleanUp();
+            },
+          },
+          msgConn
+        );
+        return;
+      }
+      // 再发送到offscreen, 处理请求
+      const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
+      offscreenCon.onMessage((msg) => {
+        // 发送到content
+        let data = msg.data;
+        data = {
+          ...data,
+          finalUrl: resultParam.finalUrl, // 替换finalUrl
+          responseHeaders: resultParam.responseHeaders || data.responseHeaders, // 替换msg.data.responseHeaders
+        };
+        msg = {
+          action: msg.action,
+          data: data,
+        } as TMessageCommAction;
+        if (msg.action === "onloadend") {
+          loadendCleanUp();
+        }
+        msgConn.sendMessage(msg);
+      });
+      msgConn.onDisconnect(() => {
+        // 关闭连接
+        offscreenCon.disconnect();
+      });
+    } catch (e: any) {
+      throw throwErrorFn(`GM_xmlhttpRequest ERROR: ${e?.message || e || "Unknown Error"}`);
+    }
   }
 
   @PermissionVerify.API({ alias: ["CAT_registerMenuInput"] })
@@ -1317,12 +1385,57 @@ export default class GMApi {
 
   // 处理GM_xmlhttpRequest请求
   handlerGmXhr() {
+    chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [9001],
+      addRules: [
+        {
+          id: 9001,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [
+              {
+                header: "X-SC-Request-Marker",
+                operation: "remove",
+              },
+            ],
+          },
+          priority: 1,
+          condition: {
+            resourceTypes: ["xmlhttprequest"],
+            // 不要指定 requestMethods。 这个DNR是对所有后台发出的xhr请求, 即使它是 HEAD，DELETE，也要捕捉
+            tabIds: [chrome.tabs.TAB_ID_NONE], // 只限于后台 service_worker / offscreen
+          },
+        },
+      ],
+    });
+
+    chrome.webRequest.onBeforeRedirect.addListener(
+      (details) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error("chrome.runtime.lastError in chrome.webRequest.onBeforeRedirect:", lastError);
+          // webRequest API 出错不进行后续处理
+          return undefined;
+        }
+        if (details.tabId === -1) {
+          const markerId = myRequests.get(details.requestId);
+          if (markerId) {
+            redirectedUrls.set(markerId, details.redirectUrl);
+          }
+        }
+      },
+      {
+        urls: ["<all_urls>"],
+        types: ["xmlhttprequest"],
+        tabId: chrome.tabs.TAB_ID_NONE, // 只限于后台 service_worker / offscreen
+      }
+    );
     const reqOpt: OnBeforeSendHeadersOptions[] = ["requestHeaders"];
     const respOpt: OnHeadersReceivedOptions[] = ["responseHeaders"];
-    if (!isFirefox()) {
-      reqOpt.push("extraHeaders");
-      respOpt.push("extraHeaders");
-    }
+    // if (!isFirefox()) {
+    reqOpt.push("extraHeaders");
+    respOpt.push("extraHeaders");
+    // }
 
     /*
 
@@ -1371,13 +1484,25 @@ export default class GMApi {
           // webRequest API 出错不进行后续处理
           return undefined;
         }
+        // 这个会较 modifyHeaders DNR 先执行
         if (details.tabId === -1) {
-          // 判断是否存在X-Scriptcat-GM-XHR-Request-Id
+          const headers = details.requestHeaders;
           // 讲请求id与chrome.webRequest的请求id关联
-          if (details.requestHeaders) {
-            const requestId = details.requestHeaders.find((header) => header.name === "X-Scriptcat-GM-XHR-Request-Id");
-            if (requestId?.value) {
-              this.cache.set("gmXhrRequest:" + details.requestId, requestId.value);
+          if (headers) {
+            // 自订header可能会被转为小写，例如fetch API
+            // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers
+            if (details.initiator ? `${details.initiator}/`.includes(`/${chrome.runtime.id}/`) : true) {
+              const idx = headers.findIndex((h) => h.name.toLowerCase() === "x-sc-request-marker");
+              if (idx !== -1) {
+                const markerID = headers[idx].value;
+                if (typeof markerID === "string") {
+                  // 请求id关联
+                  const reqId = details.requestId;
+                  myRequests.set(markerID, reqId);
+                  myRequests.set(reqId, markerID);
+                  redirectedUrls.set(markerID, details.url);
+                }
+              }
             }
           }
         }
@@ -1386,6 +1511,7 @@ export default class GMApi {
       {
         urls: ["<all_urls>"],
         types: ["xmlhttprequest"],
+        tabId: chrome.tabs.TAB_ID_NONE, // 只限于后台 service_worker / offscreen
       },
       reqOpt
     );
@@ -1398,9 +1524,19 @@ export default class GMApi {
           return undefined;
         }
         if (details.tabId === -1) {
+          const reqId = details.requestId;
+
+          const markerID = myRequests.get(reqId);
+          if (!markerID) return;
+          headersReceivedMap.set(markerID, {
+            responseHeaders: details.responseHeaders,
+            statusCode: details.statusCode,
+          });
+
           // 判断请求是否与gmXhrRequest关联
-          const requestId = this.cache.get("gmXhrRequest:" + details.requestId);
-          if (requestId) {
+          const dnrRule = headerModifierMap.get(markerID);
+          if (dnrRule) {
+            const { rule, redirectNotManual } = dnrRule;
             // 判断是否重定向
             let location = "";
             details.responseHeaders?.forEach((header) => {
@@ -1418,34 +1554,38 @@ export default class GMApi {
                 }
               }
             });
-            const params = this.cache.get("gmXhrRequest:params:" + requestId) as GMSend.XHRDetails;
+
             // 如果是重定向，并且不是manual模式，则需要重新设置dnr规则
-            if (location && params.redirect !== "manual") {
+            if (location && redirectNotManual) {
               // 处理重定向后的unsafeHeader
-              const rule = this.cache.get("dnrRule:" + requestId) as chrome.declarativeNetRequest.Rule;
-              // 修改匹配链接
-              rule.condition.urlFilter = location;
-              // 不处理cookie
-              rule.action.requestHeaders = rule.action.requestHeaders?.filter(
-                (header) => header.header.toLowerCase() !== "cookie"
-              );
-              // 设置重定向url，获取到实际的请求地址
-              this.cache.set("gmXhrRequest:finalUrl:" + requestId, location);
+              // 使用 object clone 避免 DNR API 新旧rule冲突
+              const newRule = {
+                ...rule,
+                condition: {
+                  ...rule.condition,
+                  // 修改匹配链接
+                  urlFilter: location,
+                },
+                action: {
+                  ...rule.action,
+                  // 不处理cookie
+                  requestHeaders: rule.action.requestHeaders?.filter(
+                    (header) => header.header.toLowerCase() !== "cookie"
+                  ),
+                },
+              };
+              headerModifierMap.set(markerID, { rule: newRule, redirectNotManual });
               chrome.declarativeNetRequest.updateSessionRules({
-                removeRuleIds: [parseInt(requestId)],
-                addRules: [rule],
+                removeRuleIds: [rule.id],
+                addRules: [newRule],
               });
-              return;
+            } else {
+              // 删除关联与DNR
+              headerModifierMap.delete(markerID);
+              chrome.declarativeNetRequest.updateSessionRules({
+                removeRuleIds: [rule.id],
+              });
             }
-            this.gmXhrHeadersReceived.emit("headersReceived:" + requestId, details);
-            // 删除关联与DNR
-            this.cache.delete("gmXhrRequest:" + details.requestId);
-            this.cache.delete("dnrRule:" + requestId);
-            this.cache.delete("gmXhrRequest:finalUrl:" + requestId);
-            this.cache.delete("gmXhrRequest:params:" + requestId);
-            chrome.declarativeNetRequest.updateSessionRules({
-              removeRuleIds: [parseInt(requestId)],
-            });
           }
         }
         return undefined;

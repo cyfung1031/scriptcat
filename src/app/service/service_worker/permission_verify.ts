@@ -112,7 +112,7 @@ export default class PermissionVerify {
   }
 
   noVerify<T>(_request: GMApiRequest<T>, _api: ApiValue, _sender: IGetSender) {
-    // 測試用
+    // 测试用
     return false;
   }
 
@@ -139,11 +139,10 @@ export default class PermissionVerify {
         (link && link.includes(grantName))
       ) {
         // 需要用户确认
-        let result = true;
         if (confirm) {
-          result = await this.pushConfirmQueue(request, confirm, sender);
+          return await this.pushConfirmQueue(request, confirm, sender);
         }
-        return result;
+        return true;
       }
     }
     throw new Error("permission not requested");

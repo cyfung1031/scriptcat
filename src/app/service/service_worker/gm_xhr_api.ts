@@ -91,12 +91,16 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
       const data = {
         ...result,
         finalUrl: inRef.finalUrl,
-        responseHeaders: inRef.responseHeader || result.responseHeaders,
+        responseHeaders: inRef.responseHeaders || result.responseHeaders,
       };
+      const eventType = result.eventType;
       const msg: TMessageCommAction = {
-        action: `on${result.eventType}`,
+        action: `on${eventType}`,
         data: data,
       };
+      if (eventType === "loadend") {
+        inRef.loadendCleanUp?.();
+      }
       stackAsyncTask(taskId, async () => {
         console.log(8001, msg);
         msgConn.sendMessage(msg);

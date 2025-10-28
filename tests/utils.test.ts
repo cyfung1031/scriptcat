@@ -13,7 +13,7 @@ const realXMLHttpRequest = global.XMLHttpRequest;
 beforeAll(() => {
   const mockXhr = newMockXhr();
   mockXhr.onSend = async (request) => {
-    return request.respond(200, o.responseHeader, o.responseContent);
+    return request.respond(200, o.responseHeaders, o.responseContent);
   };
   vi.stubGlobal("XMLHttpRequest", mockXhr);
 });
@@ -23,7 +23,7 @@ afterAll(() => {
 });
 
 const o = {
-  responseHeader: {},
+  responseHeaders: {},
   responseContent: null,
 } as Record<any, any>;
 
@@ -54,7 +54,7 @@ describe("测试GMApi环境 - XHR", async () => {
     uuid: script.uuid,
   });
   it("test GM xhr - plain text", async () => {
-    o.responseHeader = {};
+    o.responseHeaders = {};
     o.responseContent = "example";
     const onload = vitest.fn();
     await new Promise((resolve) => {
@@ -111,7 +111,7 @@ describe("测试GMApi环境 - XHR", async () => {
 
     // Create a Blob object from the HTML string
     const blob = new Blob([htmlContent], { type: "text/html" });
-    o.responseHeader = {};
+    o.responseHeaders = {};
     o.responseContent = blob;
     const fn1 = vitest.fn();
     const fn2 = vitest.fn();
@@ -198,7 +198,7 @@ describe("测试GMApi环境 - XHR", async () => {
     const jsonObj = { code: 100, result: { a: 3, b: [2, 4], c: ["1", "2", "4"], d: { e: [1, 3], f: "4" } } };
     const jsonObjStr = JSON.stringify(jsonObj);
 
-    o.responseHeader = { "Content-Type": "application/json" };
+    o.responseHeaders = { "Content-Type": "application/json" };
     o.responseContent = jsonObjStr;
     const fn1 = vitest.fn();
     const fn2 = vitest.fn();
@@ -207,14 +207,14 @@ describe("测试GMApi环境 - XHR", async () => {
         url: "https://mock-xmlhttprequest.test/",
         responseType: "json",
         onload: (res) => {
-          o.responseHeader = {};
+          o.responseHeaders = {};
           o.responseContent = "";
           resolve(true);
           fn1(res.responseText);
           fn2(res.response);
         },
         onloadend: () => {
-          o.responseHeader = {};
+          o.responseHeaders = {};
           o.responseContent = "";
           resolve(false);
         },
@@ -242,14 +242,14 @@ describe("测试GMApi环境 - XHR", async () => {
         url: "https://mock-xmlhttprequest.test/",
         responseType: "json",
         onload: (res) => {
-          o.responseHeader = {};
+          o.responseHeaders = {};
           o.responseContent = "";
           resolve(true);
           fn1(res.responseText);
           fn2(res.response);
         },
         onloadend: () => {
-          o.responseHeader = {};
+          o.responseHeaders = {};
           o.responseContent = "";
           resolve(false);
         },
