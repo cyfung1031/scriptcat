@@ -36,7 +36,7 @@ declare namespace GMSend {
     method?: "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS";
     url: string;
     headers?: { [key: string]: string };
-    data?: string | Array<XHRFormData>;
+    data?: string | Array<XHRFormData> | any;
     cookie?: string;
     /**
      *
@@ -65,6 +65,7 @@ declare namespace GMSend {
     key: string;
     val: string;
     filename?: string;
+    lastModified?: number;
   }
 }
 

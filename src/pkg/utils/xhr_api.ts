@@ -1,46 +1,7 @@
 // console.log('streaming ' + (GM_xmlhttpRequest.RESPONSE_TYPE_STREAM === 'stream' ? 'supported' : 'not supported');
 
 import { isThisBlobObj } from "./utils";
-
-export const TypeHolderKey = "__SCType.5a2Qj__";
-export const enum TypeHolderTypes {
-  SAFE = 1,
-  DOCUMENT = 2,
-  BLOB = 4,
-  ARRAYBUFFER = 8,
-}
-
-export type TypeHolderForDocument =
-  | {
-      [TypeHolderKey]: TypeHolderTypes.DOCUMENT;
-      v: Document;
-    }
-  | {
-      [TypeHolderKey]: TypeHolderTypes.SAFE | TypeHolderTypes.DOCUMENT;
-      v: string;
-    };
-
-export type TypeHolderForBlob =
-  | {
-      [TypeHolderKey]: TypeHolderTypes.BLOB;
-      v: Blob;
-    }
-  | {
-      [TypeHolderKey]: TypeHolderTypes.SAFE | TypeHolderTypes.BLOB;
-      v: never;
-    };
-
-export type TypeHolderForArrayBuffer =
-  | {
-      [TypeHolderKey]: TypeHolderTypes.ARRAYBUFFER;
-      v: ArrayBuffer;
-    }
-  | {
-      [TypeHolderKey]: TypeHolderTypes.SAFE | TypeHolderTypes.ARRAYBUFFER;
-      v: never;
-    };
-
-export type TypeHolder = TypeHolderForDocument | TypeHolderForBlob | TypeHolderForArrayBuffer;
+import { dataDecode } from "./xhr_data";
 
 /**
  * ## GM_xmlhttpRequest(details)
@@ -281,8 +242,8 @@ export class FetchXHR {
   responseURL = "";
   responseType: ResponseType = "";
   response: unknown = null;
-  responseText = ""; // filled for "" and "text", empty otherwise
-  responseXML: TypeHolderForDocument | null = null;
+  responseText = ""; // not used
+  responseXML = null; // not used
   timeout = 0; // ms; 0 = no timeout
   withCredentials = false; // fetch doesn’t support cookies toggling per-request; kept for API parity
 
@@ -581,59 +542,6 @@ export class FetchXHR {
       this.statusText = res.statusText ?? "";
       this.responseURL = res.url ?? this.url;
 
-      // if (responseOverrided) {
-      //   this.responseText = ""; // XHR leaves responseText empty for binary types
-      //   this.responseXML = null;
-      // } else {
-      //   switch (this.responseType) {
-      //     case "json": {
-      //       this.responseText = text; // XHR exposes responseText even for JSON
-      //       this.responseXML = null;
-      //       try {
-      //         this.response = text.length ? JSON.parse(text) : null; // Object or null
-      //       } catch (_e: any) {
-      //         // Mirror XHR: if invalid JSON but requested json, surface as error
-      //         // throw new Error("Invalid JSON response");
-      //         this.response = null;
-      //       }
-      //       break;
-      //     }
-      //     case "blob": {
-      //       // Assemble the final response based on responseType
-      //       const full = concatUint8(chunks);
-      //       // Try to preserve Content-Type
-      //       const type = res.headers.get("content-type") || "application/octet-stream";
-      //       this.response = new Blob([full], { type }); // Blob
-      //       this.responseText = ""; // XHR leaves responseText empty for binary types
-      //       this.responseXML = null;
-      //       break;
-      //     }
-      //     case "arraybuffer": {
-      //       // Assemble the final response based on responseType
-      //       const full = concatUint8(chunks);
-      //       this.response = full.buffer.slice(full.byteOffset, full.byteOffset + full.byteLength); // ArrayBuffer
-      //       this.responseText = "";
-      //       this.responseXML = null;
-      //       break;
-      //     }
-      //     case "document": {
-      //       this.responseText = "";
-      //       this.responseXML = wrapSafeType(text, TypeHolderTypes.DOCUMENT) as TypeHolderForDocument;
-      //       this.response = wrapSafeType(text, TypeHolderTypes.DOCUMENT); // SafeDocument
-      //       // this.responseXML = textToXMLDoc(text);
-      //       break;
-      //     }
-      //     case "":
-      //     case "text":
-      //     default: {
-      //       this.responseText = text;
-      //       this.response = text;
-      //       this.responseXML = null;
-      //       break;
-      //     }
-      //   }
-      // }
-
       if (this.isAborted) {
         const err = new Error("AbortError");
         err.name = "AbortError";
@@ -722,6 +630,8 @@ revalidate revalidate maybe cached content
 context a property which will be added to the response object
 
 */
+  details.data = dataDecode(details.data as any);
+  if (details.data === undefined) delete details.data;
 
   const anonymous = details.anonymous ?? details.mozAnon ?? false;
 
@@ -735,8 +645,11 @@ context a property which will be added to the response object
   console.log("useFetch", isFetch, !!redirect, anonymous, isBufferStream);
 
   const prepareXHR = async () => {
-    let rawData =
-      settings.encodedData !== undefined ? ((await decodeBody(settings.encodedData)) as GMXHRDataType) : details.data;
+    let rawData = (details.data = await details.data);
+    // let rawData =
+    //   settings.encodedData !== undefined ? ((await decodeBody(settings.encodedData)) as GMXHRDataType) : details.data;
+
+    console.log("rawData", rawData);
 
     const baseXHR = useFetch
       ? new FetchXHR({
@@ -788,42 +701,6 @@ context a property which will be added to the response object
       if (contentType && !responseHeaders) {
         responseHeaders = xhr.getAllResponseHeaders();
       }
-      // let response = xhr.response;
-      // let responseText;
-      // let responseXML: TypeHolderForDocument | null = null;
-      // if (details.responseType === "stream") {
-      //   responseText = "";
-      //   responseXML = null;
-      // } else {
-      // if (xhr.responseType === "document" && xhr.responseXML instanceof Document) {
-      //   // 這個 function 沿用從xhr取得原生 document 物件的設計，然後在外層轉換回傳一般物件型態。
-      //   // 這確保xml結果一致
-      //   responseText = "";
-      //   responseXML = wrapRawType(xhr.responseXML, TypeHolderTypes.DOCUMENT) as TypeHolderForDocument; // TypeHolder_RawDocument
-      //   response = wrapRawType(xhr.responseXML, TypeHolderTypes.DOCUMENT); // TypeHolder_RawDocument
-      // } else if (xhr.responseType === "document" && xhr instanceof FetchXHR && xhr.responseXML?.[TypeHolderKey]) {
-      //   responseText = "";
-      //   responseXML = xhr.responseXML; // TypeHolder_SafeDocument
-      //   response = xhr.responseXML; // TypeHolder_SafeDocument
-      // } else if (response instanceof Blob) {
-      //   responseText = "";
-      //   responseXML = null;
-      //   response = wrapRawType(response, TypeHolderTypes.BLOB);
-      // } else if (response instanceof ArrayBuffer) {
-      //   responseText = "";
-      //   responseXML = null;
-      //   response = responseText;
-      //   response = wrapRawType(response, TypeHolderTypes.ARRAYBUFFER);
-      // } else if (xhr.responseType === "" || xhr.responseType === "text") {
-      //   responseText = xhr.responseText; // string
-      //   responseXML = null;
-      //   response = responseText;
-      // } else {
-      //   responseText = "";
-      //   responseXML = null;
-      //   response = null;
-      // }
-      // }
       console.log(1313000, xhr instanceof FetchXHR, eventType, xhr.responseType, xhr.readyState);
       if (!(xhr instanceof FetchXHR)) {
         const response = xhr.response;
@@ -968,8 +845,14 @@ context a property which will be added to the response object
     if (
       rawData instanceof URLSearchParams ||
       typeof rawData === "string" ||
-      isThisBlobObj(rawData) ||
-      rawData instanceof FormData
+      typeof rawData === "number" ||
+      typeof rawData === "boolean" ||
+      rawData === null ||
+      rawData === undefined ||
+      rawData instanceof Blob ||
+      rawData instanceof FormData ||
+      rawData instanceof ArrayBuffer ||
+      rawData instanceof Uint8Array
     ) {
       //
     } else if (rawData && typeof rawData === "object" && !(rawData instanceof ArrayBuffer)) {
@@ -1264,20 +1147,6 @@ export function textToXMLDoc(text: string): Document {
   const xmlDoc = parser.parseFromString(text, "application/xml");
   return xmlDoc;
 }
-
-// function wrapRawType(v: any, type: number): TypeHolder {
-//   return {
-//     [TypeHolderKey]: type,
-//     v: v,
-//   };
-// }
-
-// function wrapSafeType(v: any, type: number): TypeHolder {
-//   return {
-//     [TypeHolderKey]: type | TypeHolderTypes.SAFE,
-//     v: v,
-//   };
-// }
 
 export const convObjectToURL = async (object: string | URL | Blob | File | undefined | null) => {
   let url = "";

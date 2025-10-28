@@ -9,7 +9,7 @@ import type {
   TScriptMenuItemID,
   TScriptMenuItemKey,
 } from "../service_worker/types";
-import { base64ToBlob, isThisBlobObj, randNum, randomMessageFlag, strToBase64 } from "@App/pkg/utils/utils";
+import { base64ToBlob, randNum, randomMessageFlag, strToBase64 } from "@App/pkg/utils/utils";
 import LoggerCore from "@App/app/logger/core";
 import EventEmitter from "eventemitter3";
 import GMContext from "./gm_context";
@@ -23,6 +23,7 @@ import { decodeMessage, encodeMessage } from "@App/pkg/utils/message_value";
 import { type TGMKeyValue } from "@App/app/repo/value";
 import { base64ToUint8, concatUint8 } from "@App/pkg/utils/xhr_api";
 import { stackAsyncTask } from "@App/pkg/utils/async_queue";
+import { dataEncode } from "@App/pkg/utils/xhr_data";
 
 // 内部函数呼叫定义
 export interface IGM_Base {
@@ -910,38 +911,7 @@ export default class GMApi extends GM_Base {
     }
     let connect: MessageConnect | null;
     const handler = async () => {
-      // 处理数据
-      if (details.data instanceof FormData) {
-        // 处理FormData
-        param.dataType = "FormData";
-        // 处理FormData中的数据
-        const data = (await Promise.all(
-          [...(details.data as FormData).entries()].map(([key, val]) =>
-            val instanceof File
-              ? Promise.resolve(toBlobURL(a, val)).then(
-                  (url) =>
-                    ({
-                      key,
-                      type: "file",
-                      val: url,
-                      filename: val.name,
-                    }) as GMSend.XHRFormData
-                )
-              : ({
-                  key,
-                  type: "text",
-                  val,
-                } as GMSend.XHRFormData)
-          )
-        )) as GMSend.XHRFormData[];
-        param.data = data;
-      } else if (isThisBlobObj(details.data)) {
-        // 处理blob
-        param.dataType = "Blob";
-        param.data = await toBlobURL(a, details.data as Blob);
-      } else {
-        param.data = details.data as string | undefined;
-      }
+      param.data = await dataEncode(details.data);
 
       // 处理返回数据
       let readerStream: ReadableStream<Uint8Array> | undefined;
