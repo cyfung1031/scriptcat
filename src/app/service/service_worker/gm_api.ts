@@ -38,12 +38,14 @@ import { backgroundXhrAPI } from "./gm_xhr_api";
 const askUnlistedConnect = false;
 const askConnectStar = true;
 
-const myRequests = new Map<string, string>();
-const redirectedUrls = new Map<string, string>();
+const myRequests = new Map<string, string>(); // 关联SC后台发出的 xhr/fetch 的 requestId
+const redirectedUrls = new Map<string, string>(); // 关联SC后台发出的 xhr/fetch 的 redirectUrl
+// 接收 xhr/fetch 的 responseHeaders
 const headersReceivedMap = new Map<
   string,
   { responseHeaders: chrome.webRequest.HttpHeader[] | undefined | null; statusCode: number | null }
 >();
+// 特殊方式处理：以 DNR Rule per request 方式处理 header 修改 (e.g. cookie, unsafeHeader)
 const headerModifierMap = new Map<
   string,
   {
@@ -804,6 +806,7 @@ export default class GMApi {
     try {
       // 先处理unsafe hearder
       // 关联自己生成的请求id与chrome.webRequest的请求id
+      // 隨機生成(同步)，不需要 chrome.storage 存取
       const u1 = Math.floor(Date.now()).toString(36);
       const u2 = Math.floor(Math.random() * 4241670967279938 + 645564536402193).toString(36);
       const markerID = `MARKER::${u1}_${u2}`;
@@ -829,7 +832,7 @@ export default class GMApi {
           const responsed = headersReceivedMap.get(markerID);
           if (responsed && typeof responsed.statusCode === "number") {
             resultParamStatusCode = responsed.statusCode;
-            responsed.statusCode = null;
+            responsed.statusCode = null; // 設為 null 避免重覆處理
           }
           return resultParamStatusCode;
         },
@@ -841,7 +844,7 @@ export default class GMApi {
               s += `${h.name}: ${h.value}\n`;
             }
             resultParamResponseHeader = s;
-            responsed.responseHeaders = null;
+            responsed.responseHeaders = null; // 設為 null 避免重覆處理
           }
           return resultParamResponseHeader;
         },
@@ -1418,9 +1421,9 @@ export default class GMApi {
           return undefined;
         }
         if (details.tabId === -1) {
-          const markerId = myRequests.get(details.requestId);
-          if (markerId) {
-            redirectedUrls.set(markerId, details.redirectUrl);
+          const markerID = myRequests.get(details.requestId);
+          if (markerID) {
+            redirectedUrls.set(markerID, details.redirectUrl);
           }
         }
       },
@@ -1484,7 +1487,8 @@ export default class GMApi {
           // webRequest API 出错不进行后续处理
           return undefined;
         }
-        // 这个会较 modifyHeaders DNR 先执行
+        // Chrome: 目前 modifyHeaders DNR 會較 chrome.webRequest.onBeforeSendHeaders 後執行
+        // 如日後API行為改變，需要改用 onBeforeRequest，且每次等 fetch/xhr 觸發 onBeforeRequest 後才能執行下一個 fetch/xhr
         if (details.tabId === -1) {
           const headers = details.requestHeaders;
           // 讲请求id与chrome.webRequest的请求id关联
@@ -1498,8 +1502,8 @@ export default class GMApi {
                 if (typeof markerID === "string") {
                   // 请求id关联
                   const reqId = details.requestId;
-                  myRequests.set(markerID, reqId);
-                  myRequests.set(reqId, markerID);
+                  myRequests.set(markerID, reqId); // 同時存放 (markerID -> reqId)
+                  myRequests.set(reqId, markerID); // 同時存放 (reqId -> markerID)
                   redirectedUrls.set(markerID, details.url);
                 }
               }
