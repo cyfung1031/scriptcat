@@ -12,7 +12,7 @@ import PermissionVerify, { PermissionVerifyApiGet } from "./permission_verify";
 import { cacheInstance } from "@App/app/cache";
 import EventEmitter from "eventemitter3";
 import { type RuntimeService } from "./runtime";
-import { getIcon, isFirefox, openInCurrentTab, cleanFileName, isThisBlobObj } from "@App/pkg/utils/utils";
+import { getIcon, isFirefox, openInCurrentTab, cleanFileName, isThisBlobObj, urlSanitize } from "@App/pkg/utils/utils";
 import { type SystemConfig } from "@App/pkg/config/config";
 import i18next, { i18nName } from "@App/locales/locales";
 import FileSystemFactory from "@Packages/filesystem/factory";
@@ -34,11 +34,12 @@ import { decodeMessage, type TEncodedMessage } from "@App/pkg/utils/message_valu
 import { type TGMKeyValue } from "@App/app/repo/value";
 import { createObjectURL } from "../offscreen/client";
 import { backgroundXhrAPI } from "./gm_xhr_api";
+import { stackAsyncTask } from "@App/pkg/utils/async_queue";
 
 const askUnlistedConnect = false;
 const askConnectStar = true;
 
-const myRequests = new Map<string, string>(); // 关联SC后台发出的 xhr/fetch 的 requestId
+const scXhrRequests = new Map<string, string>(); // 关联SC后台发出的 xhr/fetch 的 requestId
 const redirectedUrls = new Map<string, string>(); // 关联SC后台发出的 xhr/fetch 的 redirectUrl
 // 接收 xhr/fetch 的 responseHeaders
 const headersReceivedMap = new Map<
@@ -53,6 +54,50 @@ const headerModifierMap = new Map<
     redirectNotManual: boolean;
   }
 >();
+
+type TXhrReqObject = {
+  reqUrl: string;
+  markerId: string;
+  resolve?: ((value?: unknown) => void) | null;
+  startTime: number;
+};
+
+const xhrReqEntries = new Map<string, TXhrReqObject>();
+
+const setReqDone = (stdUrl: string, xhrReqEntry: TXhrReqObject) => {
+  xhrReqEntry.reqUrl = "";
+  xhrReqEntry.markerId = "";
+  xhrReqEntry.startTime = 0;
+  xhrReqEntry.resolve?.();
+  xhrReqEntry.resolve = null;
+  xhrReqEntries.delete(stdUrl);
+};
+
+const setReqId = (reqId: string, url: string, timeStamp: number) => {
+  const stdUrl = urlSanitize(url);
+  const xhrReqEntry = xhrReqEntries.get(stdUrl);
+  if (xhrReqEntry) {
+    const { reqUrl, markerId } = xhrReqEntry;
+    if (reqUrl !== url) {
+      // 通常不會發生
+      console.error("xhrReqEntry URL mistached", reqUrl, url);
+      setReqDone(stdUrl, xhrReqEntry);
+    } else if (!xhrReqEntry.startTime || !(timeStamp > xhrReqEntry.startTime)) {
+      // 通常不會發生
+      console.error("xhrReqEntry timeStamp issue 1", xhrReqEntry.startTime, timeStamp);
+      setReqDone(stdUrl, xhrReqEntry);
+    } else if (timeStamp - xhrReqEntry.startTime > 400) {
+      // 通常不會發生
+      console.error("xhrReqEntry timeStamp issue 2", xhrReqEntry.startTime, timeStamp);
+      setReqDone(stdUrl, xhrReqEntry);
+    } else {
+      // console.log("xhrReqEntry", xhrReqEntry.startTime, timeStamp); // 相隔 2 ~ 9 ms
+      scXhrRequests.set(markerId, reqId); // 同時存放 (markerID -> reqId)
+      scXhrRequests.set(reqId, markerId); // 同時存放 (reqId -> markerID)
+      setReqDone(stdUrl, xhrReqEntry);
+    }
+  }
+};
 
 // GMApi,处理脚本的GM API调用请求
 
@@ -518,7 +563,9 @@ export default class GMApi {
     // https://datatracker.ietf.org/doc/html/rfc6648
     // All header names in HTTP/2 are lower case, and CF will convert if needed.
     // All headers comparisons in HTTP/1.1 should be case insensitive.
-    headers["X-SC-Request-Marker"] = `${markerID}`;
+    // headers["X-SC-Request-Marker"] = `${markerID}`;
+
+    // 不使用"X-SC-Request-Marker", 避免 modifyHeaders DNR 和 chrome.webRequest.onBeforeSendHeaders 的執行次序問題
 
     // 如果header中没有origin就设置为空字符串，如果有origin就不做处理，注意处理大小写
     if (typeof headers["Origin"] !== "string" && typeof headers["origin"] !== "string") {
@@ -551,7 +598,7 @@ export default class GMApi {
       // 追加该网站本身存储的cookie
       const tabId = sender.getExtMessageSender().tabId;
       let storeId: string | undefined;
-      if (tabId !== -1) {
+      if (tabId !== -1 && typeof tabId === "number") {
         const stores = await chrome.cookies.getAllCookieStores();
         const store = stores.find((val) => val.tabIds.includes(tabId));
         if (store) {
@@ -570,7 +617,7 @@ export default class GMApi {
         partitionKey: params.cookiePartition,
       });
       // 追加cookie
-      if (cookies.length) {
+      if (cookies?.length) {
         const v = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
         const u = `${headers["cookie"] || ""}`.trim();
         headers["cookie"] = u ? `${u}${!u.endsWith(";") ? "; " : " "}${v}` : v;
@@ -589,7 +636,7 @@ export default class GMApi {
         modifyReqHeaders.push({
           header: key,
           operation: "set",
-          value: headerValue.toString(),
+          value: `${headerValue}`,
         });
         delete headers[key];
       }
@@ -808,7 +855,7 @@ export default class GMApi {
       // 关联自己生成的请求id与chrome.webRequest的请求id
       // 隨機生成(同步)，不需要 chrome.storage 存取
       const u1 = Math.floor(Date.now()).toString(36);
-      const u2 = Math.floor(Math.random() * 4241670967279938 + 645564536402193).toString(36);
+      const u2 = Math.floor(Math.random() * 2514670967279938 + 1045564536402193).toString(36);
       const markerID = `MARKER::${u1}_${u2}`;
 
       // 处理cookiePartition
@@ -870,54 +917,81 @@ export default class GMApi {
       }
       const loadendCleanUp = () => {
         redirectedUrls.delete(markerID);
-        const reqId = myRequests.get(markerID);
-        if (reqId) myRequests.delete(reqId);
-        myRequests.delete(markerID);
+        const reqId = scXhrRequests.get(markerID);
+        if (reqId) scXhrRequests.delete(reqId);
+        scXhrRequests.delete(markerID);
         headersReceivedMap.delete(markerID);
         headerModifierMap.delete(markerID);
       };
-      if (useFetch) {
-        // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
-        // return this.CAT_fetch(param1, sender, resultParam);
-        backgroundXhrAPI(
-          param1,
-          {
-            get finalUrl() {
-              return resultParam.finalUrl;
+      const requestUrl = param1.url;
+      const stdUrl = urlSanitize(requestUrl); // 確保 url 能執行 urlSanitize 且不會報錯
+
+      const f = async () => {
+        if (useFetch) {
+          // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
+          // return this.CAT_fetch(param1, sender, resultParam);
+
+          backgroundXhrAPI(
+            param1,
+            {
+              get finalUrl() {
+                return resultParam.finalUrl;
+              },
+              get responseHeaders() {
+                return resultParam.responseHeaders;
+              },
+              loadendCleanUp() {
+                loadendCleanUp();
+              },
             },
-            get responseHeaders() {
-              return resultParam.responseHeaders;
-            },
-            loadendCleanUp() {
-              loadendCleanUp();
-            },
-          },
-          msgConn
-        );
-        return;
-      }
-      // 再发送到offscreen, 处理请求
-      const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
-      offscreenCon.onMessage((msg) => {
-        // 发送到content
-        let data = msg.data;
-        data = {
-          ...data,
-          finalUrl: resultParam.finalUrl, // 替换finalUrl
-          responseHeaders: resultParam.responseHeaders || data.responseHeaders, // 替换msg.data.responseHeaders
-        };
-        msg = {
-          action: msg.action,
-          data: data,
-        } as TMessageCommAction;
-        if (msg.action === "onloadend") {
-          loadendCleanUp();
+            msgConn
+          );
+          return;
         }
-        msgConn.sendMessage(msg);
-      });
-      msgConn.onDisconnect(() => {
-        // 关闭连接
-        offscreenCon.disconnect();
+        // 再发送到offscreen, 处理请求
+        const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
+        offscreenCon.onMessage((msg) => {
+          // 发送到content
+          let data = msg.data;
+          data = {
+            ...data,
+            finalUrl: resultParam.finalUrl, // 替换finalUrl
+            responseHeaders: resultParam.responseHeaders || data.responseHeaders, // 替换msg.data.responseHeaders
+          };
+          msg = {
+            action: msg.action,
+            data: data,
+          } as TMessageCommAction;
+          if (msg.action === "onloadend") {
+            loadendCleanUp();
+          }
+          msgConn.sendMessage(msg);
+        });
+        msgConn.onDisconnect(() => {
+          // 关闭连接
+          offscreenCon.disconnect();
+        });
+      };
+
+      // stackAsyncTask 是为了 chrome.webRequest.onBeforeRequest 能捕捉当前 XHR 的 id
+      // 旧SC使用 modiftyHeader DNR Rule + chrome.webRequest.onBeforeSendHeaders 捕捉
+      // 但这种方式可能会随DNR规范改变而失效，因为 modiftyHeader DNR Rule 不保证必定发生在 onBeforeSendHeaders 前
+      await stackAsyncTask(`nwRequest::${stdUrl}`, async () => {
+        const xhrReqEntry = {
+          reqUrl: requestUrl,
+          markerId: markerID,
+          startTime: Date.now() - 1, // -1 to avoid floating number rounding
+        } as TXhrReqObject;
+        const ret = new Promise((resolve) => {
+          xhrReqEntry.resolve = resolve;
+        });
+        xhrReqEntries.set(stdUrl, xhrReqEntry);
+        try {
+          await f();
+        } catch {
+          setReqDone(stdUrl, xhrReqEntry);
+        }
+        return ret;
       });
     } catch (e: any) {
       throw throwErrorFn(`GM_xmlhttpRequest ERROR: ${e?.message || e || "Unknown Error"}`);
@@ -1388,29 +1462,55 @@ export default class GMApi {
 
   // 处理GM_xmlhttpRequest请求
   handlerGmXhr() {
-    chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [9001],
-      addRules: [
-        {
-          id: 9001,
-          action: {
-            type: "modifyHeaders",
-            requestHeaders: [
-              {
-                header: "X-SC-Request-Marker",
-                operation: "remove",
-              },
-            ],
-          },
-          priority: 1,
-          condition: {
-            resourceTypes: ["xmlhttprequest"],
-            // 不要指定 requestMethods。 这个DNR是对所有后台发出的xhr请求, 即使它是 HEAD，DELETE，也要捕捉
-            tabIds: [chrome.tabs.TAB_ID_NONE], // 只限于后台 service_worker / offscreen
-          },
-        },
-      ],
-    });
+    chrome.webRequest.onBeforeRequest.addListener(
+      (req) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error("chrome.runtime.lastError in chrome.webRequest.onBeforeRequest:", lastError);
+          // webRequest API 出错不进行后续处理
+          return undefined;
+        }
+        if (xhrReqEntries.size) {
+          if (
+            req.tabId === -1 &&
+            req.requestId &&
+            req.url &&
+            (req.initiator ? `${req.initiator}/`.includes(`/${chrome.runtime.id}/`) : true)
+          ) {
+            setReqId(req.requestId, req.url, req.timeStamp);
+          }
+        }
+      },
+      {
+        urls: ["<all_urls>"],
+        types: ["xmlhttprequest"],
+        tabId: chrome.tabs.TAB_ID_NONE, // 只限于后台 service_worker / offscreen
+      }
+    );
+
+    // chrome.declarativeNetRequest.updateSessionRules({
+    //   removeRuleIds: [9001],
+    //   addRules: [
+    //     {
+    //       id: 9001,
+    //       action: {
+    //         type: "modifyHeaders",
+    //         requestHeaders: [
+    //           {
+    //             header: "X-SC-Request-Marker",
+    //             operation: "remove",
+    //           },
+    //         ],
+    //       },
+    //       priority: 1,
+    //       condition: {
+    //         resourceTypes: ["xmlhttprequest"],
+    //         // 不要指定 requestMethods。 这个DNR是对所有后台发出的xhr请求, 即使它是 HEAD，DELETE，也要捕捉
+    //         tabIds: [chrome.tabs.TAB_ID_NONE], // 只限于后台 service_worker / offscreen
+    //       },
+    //     },
+    //   ],
+    // });
 
     chrome.webRequest.onBeforeRedirect.addListener(
       (details) => {
@@ -1421,7 +1521,7 @@ export default class GMApi {
           return undefined;
         }
         if (details.tabId === -1) {
-          const markerID = myRequests.get(details.requestId);
+          const markerID = scXhrRequests.get(details.requestId);
           if (markerID) {
             redirectedUrls.set(markerID, details.redirectUrl);
           }
@@ -1487,28 +1587,41 @@ export default class GMApi {
           // webRequest API 出错不进行后续处理
           return undefined;
         }
-        // Chrome: 目前 modifyHeaders DNR 會較 chrome.webRequest.onBeforeSendHeaders 後執行
-        // 如日後API行為改變，需要改用 onBeforeRequest，且每次等 fetch/xhr 觸發 onBeforeRequest 後才能執行下一個 fetch/xhr
         if (details.tabId === -1) {
-          const headers = details.requestHeaders;
-          // 讲请求id与chrome.webRequest的请求id关联
-          if (headers) {
-            // 自订header可能会被转为小写，例如fetch API
-            // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers
-            if (details.initiator ? `${details.initiator}/`.includes(`/${chrome.runtime.id}/`) : true) {
-              const idx = headers.findIndex((h) => h.name.toLowerCase() === "x-sc-request-marker");
-              if (idx !== -1) {
-                const markerID = headers[idx].value;
-                if (typeof markerID === "string") {
-                  // 请求id关联
-                  const reqId = details.requestId;
-                  myRequests.set(markerID, reqId); // 同時存放 (markerID -> reqId)
-                  myRequests.set(reqId, markerID); // 同時存放 (reqId -> markerID)
-                  redirectedUrls.set(markerID, details.url);
-                }
-              }
-            }
-          }
+          const reqId = details.requestId;
+
+          const markerID = scXhrRequests.get(reqId);
+          if (!markerID) return;
+          redirectedUrls.set(markerID, details.url);
+
+          // if (myRequests.has(details.requestId)) {
+          //   const markerID = myRequests.get(details.requestId);
+          //   if (markerID) {
+          //     redirectedUrls.set(markerID, details.url);
+          //   }
+          // } else {
+          //   // Chrome: 目前 modifyHeaders DNR 會較 chrome.webRequest.onBeforeSendHeaders 後執行
+          //   // 如日後API行為改變，需要改用 onBeforeRequest，且每次等 fetch/xhr 觸發 onBeforeRequest 後才能執行下一個 fetch/xhr
+          //   const headers = details.requestHeaders;
+          //   // 讲请求id与chrome.webRequest的请求id关联
+          //   if (headers) {
+          //     // 自订header可能会被转为小写，例如fetch API
+          //     // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers
+          //     if (details.initiator ? `${details.initiator}/`.includes(`/${chrome.runtime.id}/`) : true) {
+          //       const idx = headers.findIndex((h) => h.name.toLowerCase() === "x-sc-request-marker");
+          //       if (idx !== -1) {
+          //         const markerID = headers[idx].value;
+          //         if (typeof markerID === "string") {
+          //           // 请求id关联
+          //           const reqId = details.requestId;
+          //           myRequests.set(markerID, reqId); // 同時存放 (markerID -> reqId)
+          //           myRequests.set(reqId, markerID); // 同時存放 (reqId -> markerID)
+          //           redirectedUrls.set(markerID, details.url);
+          //         }
+          //       }
+          //     }
+          //   }
+          // }
         }
         return undefined;
       },
@@ -1530,7 +1643,7 @@ export default class GMApi {
         if (details.tabId === -1) {
           const reqId = details.requestId;
 
-          const markerID = myRequests.get(reqId);
+          const markerID = scXhrRequests.get(reqId);
           if (!markerID) return;
           headersReceivedMap.set(markerID, {
             responseHeaders: details.responseHeaders,
