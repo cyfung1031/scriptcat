@@ -13,18 +13,6 @@ export const blobToUint8Array = async (blob: Blob): Promise<Uint8Array<ArrayBuff
   });
 };
 
-// Helper to join Uint8Array chunks
-export function concatUint8(chunks: Uint8Array<ArrayBufferLike>[]): Uint8Array<ArrayBuffer> {
-  const totalLen = chunks.reduce((n, c) => n + c.byteLength, 0);
-  const out = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.byteLength;
-  }
-  return out;
-}
-
 /** Base64 -> Uint8Array (browser-safe) */
 export function base64ToUint8(b64: string): Uint8Array<ArrayBuffer> {
   if (typeof (Uint8Array as any).fromBase64 === "function") {
@@ -65,10 +53,36 @@ export function uint8ToBase64(uint8arr: Uint8Array<ArrayBufferLike>): string {
 
 // Split Uint8Array (or ArrayBuffer) into 2MB chunks as Uint8Array views
 export function chunkUint8(src: Uint8Array | ArrayBuffer, chunkSize = 2 * 1024 * 1024): Uint8Array<ArrayBufferLike>[] {
+  if (chunkSize <= 0) throw new RangeError("chunkSize must be > 0");
+  // Fast path: normalize to a Uint8Array view without copying
   const u8 = src instanceof Uint8Array ? src : new Uint8Array(src);
-  const chunks: Uint8Array<ArrayBufferLike>[] = [];
-  for (let i = 0, l = u8.length; i < l; i += chunkSize) {
-    chunks.push(u8.subarray(i, Math.min(i + chunkSize, u8.length)));
-  }
+  const len = u8.length;
+  if (len < chunkSize) return len ? [u8.subarray(0)] : [];
+  const full = Math.floor(len / chunkSize);
+  const rem = len - full * chunkSize;
+  const outLen = rem ? full + 1 : full;
+  const chunks = new Array<Uint8Array>(outLen);
+  let offset = 0;
+  for (let k = 0; k < full; k++) chunks[k] = u8.subarray(offset, (offset += chunkSize));
+  if (rem) chunks[full] = u8.subarray(offset);
   return chunks; // array of Uint8Array views
+}
+
+// Helper to join Uint8Array chunks
+export function concatUint8(chunks: readonly Uint8Array<ArrayBufferLike>[]): Uint8Array<ArrayBuffer> {
+  const n = chunks.length;
+  if (n === 0) return new Uint8Array(0);
+  if (n === 1) {
+    return new Uint8Array(chunks[0]);
+  }
+  let total = 0;
+  for (let i = 0; i < n; i++) total += chunks[i].byteLength;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (let i = 0; i < n; i++) {
+    const chunk = chunks[i];
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
