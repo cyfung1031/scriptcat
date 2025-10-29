@@ -19,7 +19,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
         if (isConnDisconnected) return;
         try {
           let buf: Uint8Array<ArrayBufferLike> | undefined;
-          console.log(31812, param.data, param);
+          // console.log(31812, param.data, param);
           // text / stream (uint8array) / buffer (uint8array) / arraybuffer
           if (param.data instanceof Uint8Array) {
             buf = param.data;
@@ -35,7 +35,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
                 action: `reset_chunk_${param.type}`,
                 data: {},
               };
-              console.log(7001, msg);
+              // console.log(7001, msg);
               msgConn.sendMessage(msg);
             }
             for (const chunk of chunks) {
@@ -45,7 +45,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
                   chunk: uint8ToBase64(chunk),
                 },
               };
-              console.log(7002, msg);
+              // console.log(7002, msg);
               msgConn.sendMessage(msg);
             }
           } else if (typeof param.data === "string") {
@@ -56,7 +56,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
                 action: `reset_chunk_${param.type}`,
                 data: {},
               };
-              console.log(7003, msg);
+              // console.log(7003, msg);
               msgConn.sendMessage(msg);
             }
             for (let i = 0, l = d.length; i < l; i += c) {
@@ -68,7 +68,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
                     chunk: chunk,
                   },
                 };
-                console.log(7004, msg);
+                // console.log(7004, msg);
                 msgConn.sendMessage(msg);
               }
             }
@@ -109,7 +109,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
       }
       stackAsyncTask(taskId, async () => {
         if (isConnDisconnected) return;
-        console.log(8001, msg);
+        // console.log(8001, msg);
         msgConn.sendMessage(msg);
       });
     },

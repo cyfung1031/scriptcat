@@ -123,7 +123,7 @@ describe("GM xmlHttpRequest", () => {
         method: "GET",
         responseType: "json",
         onload: (resp) => {
-          console.log(1238, resp.response, resp.responseText);
+          // console.log(1238, resp.response, resp.responseText);
           expect(resp.response).toBeUndefined();
           expect(resp.responseText).toBe("example");
           resolve();

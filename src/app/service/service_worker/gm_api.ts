@@ -875,7 +875,7 @@ export default class GMApi {
     };
 
     const throwErrorFn = (error: string) => {
-      console.log(5992, resultParam.statusCode, resultParam.responseHeaders);
+      // console.log(5992, resultParam.statusCode, resultParam.responseHeaders);
       if (!isConnDisconnected) {
         msgConn.sendMessage({
           action: "onerror",
@@ -891,7 +891,7 @@ export default class GMApi {
     };
 
     const param1 = request.params[0];
-    console.log(377102, param1);
+    // console.log(377102, param1);
     if (!param1) {
       throw throwErrorFn("param is failed");
     }

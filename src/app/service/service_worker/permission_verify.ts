@@ -183,7 +183,7 @@ export default class PermissionVerify {
     if (typeof confirm === "boolean") {
       return confirm;
     }
-    console.log(96921);
+    // console.log(96921);
     const cacheKey = `${CACHE_KEY_PERMISSION}${request.script.uuid}:${confirm.permission}:${confirm.permissionValue || ""}`;
     // 从数据库中查询是否有此权限
     const ret = await cacheInstance.getOrSet(cacheKey, async () => {

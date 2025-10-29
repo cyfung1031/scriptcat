@@ -257,6 +257,7 @@ export class FetchXHR {
   ontimeout: ((evt: Partial<Event>) => void) | null = null;
 
   private isAborted: boolean = false;
+  private reqDone: boolean = false;
 
   // Internal
   private method: string | null = null;
@@ -307,6 +308,7 @@ export class FetchXHR {
     if (this.readyState !== FetchXHR.OPENED || !this.method || !this.url) {
       throw new Error("Invalid state: call open() first.");
     }
+    this.reqDone = false;
 
     this.body = body ?? null;
     this.controller = new AbortController();
@@ -314,7 +316,7 @@ export class FetchXHR {
     // Setup timeout if specified
     if (this.timeout > 0) {
       this.timeoutId = setTimeout(() => {
-        if (this.controller) {
+        if (this.controller && !this.reqDone) {
           this.timedOut = true;
           this.controller.abort();
         }
@@ -525,7 +527,7 @@ export class FetchXHR {
           streamReader.releaseLock();
         }
       } else {
-        console.log(211);
+        // console.log(211);
         firstLoad();
         // Fallback: no streaming support — read fully
         const buf = new Uint8Array<ArrayBuffer>(await res.arrayBuffer());
@@ -558,32 +560,42 @@ export class FetchXHR {
       }
       this.status = 0;
 
-      if (this.timedOut) {
+      if (this.timedOut && !this.reqDone) {
+        this.reqDone = true;
         this.ontimeout?.({ type: "timeout" });
         return;
       }
 
-      if ((err as any)?.name === "AbortError") {
+      if ((err as any)?.name === "AbortError" && !this.reqDone) {
+        this.reqDone = true;
         this.readyState = FetchXHR.UNSENT;
+        this.status = 0;
+        this.statusText = "";
         this.onabort?.({ type: "abort" });
         return;
       }
 
       this.readyState = FetchXHR.DONE;
-      this.onerror?.({ type: "error" }, (err || "Unknown Error") as Error | string);
+      if (!this.reqDone) {
+        this.reqDone = true;
+        this.onerror?.({ type: "error" }, (err || "Unknown Error") as Error | string);
+      }
     } finally {
       this.controller = null;
       if (this.timeoutId != null) {
         clearTimeout(this.timeoutId);
         this.timeoutId = null;
       }
+      this.reqDone = true;
       this.onloadend?.({ type: "loadend" });
     }
   }
 
   abort() {
     this.isAborted = true;
-    this.controller?.abort();
+    if (!this.reqDone) {
+      this.controller?.abort();
+    }
   }
 
   // Utility to fire readyState changes
@@ -640,12 +652,12 @@ context a property which will be added to the response object
   let xhrResponseType: "arraybuffer" | "text" | "" = "";
 
   const useFetch = isFetch || !!redirect || anonymous || isBufferStream;
-  console.log("useFetch", isFetch, !!redirect, anonymous, isBufferStream);
+  // console.log("useFetch", isFetch, !!redirect, anonymous, isBufferStream);
 
   const prepareXHR = async () => {
     let rawData = (details.data = await details.data);
 
-    console.log("rawData", rawData);
+    // console.log("rawData", rawData);
 
     const baseXHR = useFetch
       ? new FetchXHR({
@@ -697,12 +709,12 @@ context a property which will be added to the response object
       if (contentType && !responseHeaders) {
         responseHeaders = xhr.getAllResponseHeaders();
       }
-      console.log(1313000, xhr instanceof FetchXHR, eventType, xhrResponseType, xhr.readyState);
+      // console.log(1313000, xhr instanceof FetchXHR, eventType, xhrResponseType, xhr.readyState);
       if (!(xhr instanceof FetchXHR)) {
         const response = xhr.response;
-        console.log(1313001, eventType, xhrResponseType);
+        // console.log(1313001, eventType, xhrResponseType);
         if (xhr.readyState === 4 && eventType === "readystatechange") {
-          console.log(1313002, eventType, xhrResponseType);
+          // console.log(1313002, eventType, xhrResponseType);
           if (xhrResponseType === "" || xhrResponseType === "text") {
             settings.onDataReceived({ chunk: false, type: "text", data: xhr.responseText });
           } else if (xhrResponseType === "arraybuffer" && response instanceof ArrayBuffer) {

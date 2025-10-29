@@ -890,7 +890,8 @@ export default class GMApi extends GM_Base {
   }
 
   static _GM_xmlhttpRequest(a: GMApi, details: GMTypes.XHRDetails, requirePromise: boolean) {
-    console.log(123005, details);
+    // console.log(123005, details);
+    let reqDone = false;
     if (a.isInvalidContext()) {
       return {
         retPromise: requirePromise ? Promise.reject("GM_xmlhttpRequest: Invalid Context") : null,
@@ -977,7 +978,7 @@ export default class GMApi extends GM_Base {
       const xhrType = param.responseType;
       const responseType = responseTypeOriginal; // 回傳用
 
-      console.log(377101, param);
+      // console.log(377101, param);
 
       // 发送信息
       a.connect("GM_xmlhttpRequest", [param]).then((con) => {
@@ -1128,7 +1129,7 @@ export default class GMApi extends GM_Base {
             },
             get responseText() {
               if (responseTypeOriginal === "document") {
-                console.log(342, resultType, resultBuffers.length, resultTexts.length);
+                // console.log(342, resultType, resultBuffers.length, resultTexts.length);
               }
               if (responseText === false) {
                 if (resultType === 2) {
@@ -1155,8 +1156,11 @@ export default class GMApi extends GM_Base {
           return param;
         };
         doAbort = (data: any) => {
-          errorOccur = "AbortError";
-          details.onabort?.(makeXHRCallbackParam(data));
+          if (!reqDone) {
+            errorOccur = "AbortError";
+            details.onabort?.(makeXHRCallbackParam(data));
+            reqDone = true;
+          }
         };
 
         con.onMessage((msgData) => {
@@ -1230,6 +1234,7 @@ export default class GMApi extends GM_Base {
                 details.onload?.(makeXHRCallbackParam(data));
                 break;
               case "onloadend": {
+                reqDone = true;
                 const xhrReponse = makeXHRCallbackParam(data);
                 details.onloadend?.(xhrReponse);
                 if (errorOccur === null) {
@@ -1329,13 +1334,19 @@ export default class GMApi extends GM_Base {
                 break;
               }
               case "ontimeout":
-                errorOccur = "TimeoutError";
-                details.ontimeout?.(makeXHRCallbackParam(data));
+                if (!reqDone) {
+                  errorOccur = "TimeoutError";
+                  details.ontimeout?.(makeXHRCallbackParam(data));
+                  reqDone = true;
+                }
                 break;
               case "onerror":
-                data.error ||= "Unknown Error";
-                errorOccur = data.error;
-                details.onerror?.(makeXHRCallbackParam(data) as GMXHRResponseTypeWithError);
+                if (!reqDone) {
+                  data.error ||= "Unknown Error";
+                  errorOccur = data.error;
+                  details.onerror?.(makeXHRCallbackParam(data) as GMXHRResponseTypeWithError);
+                  reqDone = true;
+                }
                 break;
               case "onabort":
                 doAbort(data);
@@ -1362,8 +1373,17 @@ export default class GMApi extends GM_Base {
           connect.disconnect();
           connect = null;
         }
-        if (doAbort && details.onabort) {
-          details.onabort(doAbort?.({ error: "aborted", responseHeaders: "", readyState: 4 }) as GMXHRResponseType);
+        if (doAbort && details.onabort && !reqDone) {
+          // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/abort
+          // When a request is aborted, its readyState is changed to XMLHttpRequest.UNSENT (0) and the request's status code is set to 0.
+          doAbort?.({
+            error: "aborted",
+            responseHeaders: "",
+            readyState: 0,
+            status: 0,
+            statusText: "",
+          }) as GMXHRResponseType;
+          reqDone = true;
         }
       },
     };
