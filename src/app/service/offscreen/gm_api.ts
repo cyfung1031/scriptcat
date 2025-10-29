@@ -2,7 +2,7 @@ import LoggerCore from "@App/app/logger/core";
 import Logger from "@App/app/logger/logger";
 import type { IGetSender, Group } from "@Packages/message/server";
 import type { MessageConnect } from "@Packages/message/types";
-import { backgroundXhrAPI } from "../service_worker/gm_xhr_api";
+import { bgXhrInterface } from "../service_worker/xhr_interface";
 
 export default class GMApi {
   logger: Logger = LoggerCore.logger().with({ service: "gmApi" });
@@ -92,7 +92,7 @@ export default class GMApi {
     const con = sender.getConnect(); // con can be undefined
     if (!con) throw new Error("offscreen xmlHttpRequest: Connection is undefined");
     console.log(38812, details);
-    backgroundXhrAPI(details, { finalUrl: "", responseHeaders: null }, con);
+    bgXhrInterface(details, { finalUrl: "", responseHeaders: null }, con);
   }
 
   textarea: HTMLTextAreaElement = document.createElement("textarea");

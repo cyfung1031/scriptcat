@@ -1,4 +1,4 @@
-import { base64ToUint8, uint8ToBase64 } from "./xhr_api";
+import { base64ToUint8, uint8ToBase64 } from "./utils_datatype";
 import { getOPFSTemp, setOPFSTemp } from "./opfs";
 
 export const typedArrayTypes = [
@@ -17,23 +17,23 @@ export const typedArrayTypes = [
 
 export const typedArrayTypesText = typedArrayTypes.map((e) => e.name);
 
-// 由於Decode端總是service_worker/offscreen
-// 假如當前Encode端環境沒有 URL.createObjectURL, 必定是 service_worker (page/content/offscreen 都有 URL.createObjectURL)
-// Encode端環境沒有 URL.createObjectURL -> OPFS -> service_worker/offscreen 讀取 OPFS
-// Encode端環境有 URL.createObjectURL -> URL.createObjectURL -> service_worker/offscreen 讀取 BlobURL
+// 由于Decode端总是service_worker/offscreen
+// 假如当前Encode端环境没有 URL.createObjectURL, 必定是 service_worker (page/content/offscreen 都有 URL.createObjectURL)
+// Encode端环境没有 URL.createObjectURL -> OPFS -> service_worker/offscreen 读取 OPFS
+// Encode端环境有 URL.createObjectURL -> URL.createObjectURL -> service_worker/offscreen 读取 BlobURL
 const innerToBlobUrl =
   typeof URL.createObjectURL === "function"
     ? (blob: Blob): string => {
-        // 執行端：content/page/offscreen
-        return URL.createObjectURL(blob);
+        // 执行端：content/page/offscreen/extension page
+        return URL.createObjectURL(blob); // 多于36字元；浏览器重启会清掉
       }
     : async (blob: Blob): Promise<string> => {
-        // 執行端：service_worker
-        const filename = await setOPFSTemp(blob);
-        return filename;
+        // 执行端：service_worker
+        const filename = await setOPFSTemp(blob); // SW重启会清掉
+        return filename; // OPFS. 只传回36字元的uuid
       };
 const innerFromBlobUrl = async (f: string): Promise<Blob> => {
-  // 執行端：service_worker/offscreen
+  // 执行端：service_worker/offscreen
   if (f.length === 36) {
     // OPFS
     const file = await getOPFSTemp(f);
@@ -84,12 +84,14 @@ export const dataDecode = (pData: any) => {
             const blob = await innerFromBlobUrl(o.val);
             let ret;
             if (o.filename) {
-              const type = blob.type || "application/octet-stream";
+              const type = o.mimeType || blob.type || "application/octet-stream";
+              const filename = typeof o.filename === "string" ? o.filename : "blob";
               const lastModified = o.lastModified;
-              ret = new File([blob], o.filename, { type, lastModified });
-              fd.append(o.key, ret, o.filename);
+              ret = new File([blob], filename, { type, lastModified });
+              fd.append(o.key, ret, filename);
             } else {
               ret = blob;
+              // We don't have a preserved filename; browsers will use "blob" by default.
               fd.append(o.key, ret);
             }
           }
@@ -136,9 +138,11 @@ export const dataEncode = async (kData: any) => {
       m: uint8ToBase64(uint8Copy),
     };
   } else if (kData instanceof URLSearchParams) {
+    // `${new URLSearchParams('你=好')}` -> '%E4%BD%A0=%E5%A5%BD'
+    // new URLSearchParams('%E4%BD%A0=%E5%A5%BD').get('你') -> '好'
     extData = {
       type: "URLSearchParams",
-      m: `${kData}`,
+      m: `${kData}`, // application/x-www-form-urlencoded percent-encoded
     };
   } else if (kData instanceof FormData) {
     // 处理FormData
@@ -147,18 +151,22 @@ export const dataEncode = async (kData: any) => {
     const data = (await Promise.all(
       [...kData.entries()].map(([key, val]) =>
         val instanceof File
-          ? ({
-              key,
-              type: "file",
-              val: innerToBlobUrl(val),
-              filename: val.name,
-              lastModified: val.lastModified,
-            } as GMSend.XHRFormData)
+          ? Promise.resolve(innerToBlobUrl(val)).then(
+              (url) =>
+                ({
+                  key,
+                  type: "file",
+                  val: url,
+                  mimeType: val.type,
+                  filename: val.name,
+                  lastModified: val.lastModified,
+                }) as GMSend.XHRFormDataFile
+            )
           : ({
               key,
               type: "text",
               val,
-            } as GMSend.XHRFormData)
+            } as GMSend.XHRFormDataText)
       )
     )) as GMSend.XHRFormData[];
     // param.data = data;
@@ -188,12 +196,12 @@ export const dataEncode = async (kData: any) => {
     if (kData instanceof File) {
       extData = {
         type: "File",
-        m: [innerToBlobUrl(kData), kData?.name, kData?.lastModified],
+        m: [await innerToBlobUrl(kData), kData?.name, kData?.lastModified],
       };
     } else {
       extData = {
         type: "Blob",
-        m: [innerToBlobUrl(kData)],
+        m: [await innerToBlobUrl(kData)],
       };
     }
   } else if (kData instanceof ArrayBuffer) {

@@ -347,24 +347,6 @@ export const stringMatching = (main: string, sub: string): boolean => {
   }
 };
 
-export const isThisBlobObj = (x: any) => {
-  return x instanceof Blob;
-  // return x && typeof x === "object" && (x instanceof Blob || `${x}` === "[object Blob]");
-};
-
-/** Convert a Blob/File to Uint8Array */
-export const blobToUint8Array = async (blob: Blob): Promise<Uint8Array<ArrayBuffer>> => {
-  if (typeof blob?.arrayBuffer === "function") return new Uint8Array(await blob.arrayBuffer());
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve(new Uint8Array(reader.result as ArrayBuffer));
-    };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(blob);
-  });
-};
-
 export const urlSanitize = (url: string) => {
   const u = new URL(url); // 利用 URL 處理 URL Encoding 問題。
   // 例如 'https://日月.baidu.com/你好' => 'https://xn--wgv4y.baidu.com/%E4%BD%A0%E5%A5%BD'

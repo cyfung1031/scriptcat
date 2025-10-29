@@ -21,7 +21,7 @@ import { getStorageName } from "@App/pkg/utils/utils";
 import { ListenerManager } from "./listener_manager";
 import { decodeMessage, encodeMessage } from "@App/pkg/utils/message_value";
 import { type TGMKeyValue } from "@App/app/repo/value";
-import { base64ToUint8, concatUint8 } from "@App/pkg/utils/xhr_api";
+import { base64ToUint8, concatUint8 } from "@App/pkg/utils/utils_datatype";
 import { stackAsyncTask } from "@App/pkg/utils/async_queue";
 import { dataEncode } from "@App/pkg/utils/xhr_data";
 
@@ -89,6 +89,34 @@ const toBlobURL = (a: GMApi, blob: Blob): Promise<string> | string => {
   } else {
     return a.sendMessage("CAT_createBlobUrl", [blob]);
   }
+};
+
+/** Convert a Blob/File to base64 data URL */
+const blobToDataURL = (blob: Blob): Promise<string> => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.onabort = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+const convObjectToURL = async (object: string | URL | Blob | File | undefined | null) => {
+  let url = "";
+  if (typeof object === "string") {
+    url = object;
+  } else if (object instanceof URL) {
+    url = object.href;
+  } else if (object instanceof Blob) {
+    // 不使用 blob URL
+    // 1. service worker 不能生成 blob URL
+    // 2. blob URL 有效期管理麻煩
+
+    const blob = object;
+    url = await blobToDataURL(blob);
+  }
+  return url;
 };
 
 const urlToDocumentInContentPage = async (a: GMApi, url: string) => {
@@ -877,7 +905,8 @@ export default class GMApi extends GM_Base {
           retPromiseReject = reject;
         })
       : null;
-    const u = new URL(details.url, window.location.href);
+    const urlPromiseLike = typeof details.url === "object" ? convObjectToURL(details.url) : details.url;
+    const dataPromise = dataEncode(details.data);
     const headers = details.headers;
     if (headers) {
       for (const key of Object.keys(headers)) {
@@ -891,7 +920,7 @@ export default class GMApi extends GM_Base {
     const param: GMSend.XHRDetails = {
       method: details.method,
       timeout: details.timeout,
-      url: u.href,
+      url: "",
       headers: details.headers,
       cookie: details.cookie,
       context: details.context,
@@ -910,15 +939,18 @@ export default class GMApi extends GM_Base {
       param.headers["Cache-Control"] = "no-cache";
     }
     let connect: MessageConnect | null;
+    const responseTypeOriginal = details.responseType?.toLocaleLowerCase() || "";
     const handler = async () => {
-      param.data = await dataEncode(details.data);
+      const [urlResolved, dataResolved] = await Promise.all([urlPromiseLike, dataPromise]);
+      const u = new URL(urlResolved, window.location.href);
+      param.url = u.href;
+      param.data = dataResolved;
 
       // 处理返回数据
       let readerStream: ReadableStream<Uint8Array> | undefined;
       let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
       // 如果返回类型是arraybuffer或者blob的情况下,需要将返回的数据转化为blob
       // 在background通过URL.createObjectURL转化为url,然后在content页读取url获取blob对象
-      const responseTypeOriginal = details.responseType?.toLocaleLowerCase() || "";
       if (responseTypeOriginal === "stream") {
         readerStream = new ReadableStream<Uint8Array>({
           start(ctrl) {
@@ -1107,12 +1139,10 @@ export default class GMApi extends GM_Base {
                 code: msgData.code,
                 message: msgData.message,
               });
-              if (details.onerror) {
-                details.onerror({
-                  readyState: 4,
-                  error: msgData.message || "unknown",
-                });
-              }
+              details.onerror?.({
+                readyState: 4,
+                error: msgData.message || "unknown",
+              });
               return;
             }
             // 处理返回

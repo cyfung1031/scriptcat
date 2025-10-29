@@ -12,7 +12,7 @@ import PermissionVerify, { PermissionVerifyApiGet } from "./permission_verify";
 import { cacheInstance } from "@App/app/cache";
 import EventEmitter from "eventemitter3";
 import { type RuntimeService } from "./runtime";
-import { getIcon, isFirefox, openInCurrentTab, cleanFileName, isThisBlobObj, urlSanitize } from "@App/pkg/utils/utils";
+import { getIcon, isFirefox, openInCurrentTab, cleanFileName, urlSanitize } from "@App/pkg/utils/utils";
 import { type SystemConfig } from "@App/pkg/config/config";
 import i18next, { i18nName } from "@App/locales/locales";
 import FileSystemFactory from "@Packages/filesystem/factory";
@@ -33,7 +33,7 @@ import i18n from "@App/locales/locales";
 import { decodeMessage, type TEncodedMessage } from "@App/pkg/utils/message_value";
 import { type TGMKeyValue } from "@App/app/repo/value";
 import { createObjectURL } from "../offscreen/client";
-import { backgroundXhrAPI } from "./gm_xhr_api";
+import { bgXhrInterface } from "./xhr_interface";
 import { stackAsyncTask } from "@App/pkg/utils/async_queue";
 
 const askUnlistedConnect = false;
@@ -931,7 +931,7 @@ export default class GMApi {
           // 只有fetch支持ReadableStream、redirect这些，直接使用fetch
           // return this.CAT_fetch(param1, sender, resultParam);
 
-          backgroundXhrAPI(
+          bgXhrInterface(
             param1,
             {
               get finalUrl() {
@@ -1316,13 +1316,13 @@ export default class GMApi {
       switch (data.action) {
         case "onload": {
           const response = xhr.response;
-          let blobURL = "";
-          if (isThisBlobObj(response)) {
-            blobURL = URL.createObjectURL(response);
+          let url = "";
+          if (response instanceof Blob) {
+            url = URL.createObjectURL(response);
           } else if (typeof response === "string") {
-            blobURL = response;
+            url = response;
           }
-          startDownload(blobURL, respond);
+          startDownload(url, respond);
           break;
         }
         case "onerror":

@@ -1,9 +1,16 @@
 import { stackAsyncTask } from "@App/pkg/utils/async_queue";
-import { isThisBlobObj } from "@App/pkg/utils/utils";
-import { chunkUint8, uint8ToBase64, xmlhttpRequestFn } from "@App/pkg/utils/xhr_api";
+import { chunkUint8, uint8ToBase64 } from "@App/pkg/utils/utils_datatype";
+import { bgXhrRequestFn } from "@App/pkg/utils/xhr_bg_core";
 import { type MessageConnect, type TMessageCommAction } from "@Packages/message/types";
 
-export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnect) => {
+/**
+ * 把 bgXhrRequestFn 的执行结果通过 MessageConnect 进一步传到 service_worker / offscreen
+ * Communicate Network Request in Background
+ * @param param1 Input
+ * @param inRef Control
+ * @param msgConn Connection
+ */
+export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect) => {
   const taskId = `${Date.now}:${Math.random()}`;
   const settings = {
     onDataReceived: (param: { chunk: boolean; type: string; data: any }) => {
@@ -11,11 +18,8 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
         try {
           let buf: Uint8Array<ArrayBufferLike> | undefined;
           console.log(31812, param.data, param);
-          if (isThisBlobObj(param.data)) {
-            const arrayBuffer = await param.data.arrayBuffer();
-            const bytes = new Uint8Array(arrayBuffer);
-            buf = bytes;
-          } else if (param.data instanceof Uint8Array) {
+          // text / stream (uint8array) / buffer (uint8array) / arraybuffer
+          if (param.data instanceof Uint8Array) {
             buf = param.data;
           } else if (param.data instanceof ArrayBuffer) {
             buf = new Uint8Array(param.data);
@@ -107,7 +111,10 @@ export const backgroundXhrAPI = (param1: any, inRef: any, msgConn: MessageConnec
       });
     },
   } as Record<string, any> & { abort?: () => void };
-  xmlhttpRequestFn(param1, settings);
+  bgXhrRequestFn(param1, settings).catch((e: any) => {
+    settings.abort?.();
+    console.error(e);
+  });
   msgConn.onDisconnect(() => {
     settings.abort?.();
     console.warn("msgConn.onDisconnect");

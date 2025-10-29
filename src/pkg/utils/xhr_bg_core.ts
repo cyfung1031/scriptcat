@@ -1,6 +1,5 @@
 // console.log('streaming ' + (GM_xmlhttpRequest.RESPONSE_TYPE_STREAM === 'stream' ? 'supported' : 'not supported');
 
-import { isThisBlobObj } from "./utils";
 import { dataDecode } from "./xhr_data";
 
 /**
@@ -135,8 +134,8 @@ type GMXHRDataType = string | Blob | File | BufferSource | FormData | URLSearchP
 export interface XmlhttpRequestFnDetails<T = any> {
   /** HTTP method (GET, POST, PUT, DELETE, etc.) */
   method?: string;
-  /** Target URL or Blob/File source */
-  url: string | URL | Blob | File;
+  /** Target url string */
+  url: string;
   /** Optional headers to include */
   headers?: Record<string, string>;
   /** Data to send with the request */
@@ -383,7 +382,7 @@ export class FetchXHR {
       const receiveAsPlainText =
         this.responseType === "" ||
         this.responseType === "text" ||
-        this.responseType === "document" || // SC的處理是把 document 當作 blob 處理。僅保留這處理實現完整工具庫功能
+        this.responseType === "document" || // SC的处理是把 document 当作 blob 处理。仅保留这处理实现完整工具库功能
         this.responseType === "json";
 
       if (receiveAsPlainText) {
@@ -592,18 +591,6 @@ export class FetchXHR {
   }
 }
 
-// Helper to join Uint8Array chunks
-export function concatUint8(chunks: Uint8Array<ArrayBufferLike>[]): Uint8Array<ArrayBuffer> {
-  const totalLen = chunks.reduce((n, c) => n + c.byteLength, 0);
-  const out = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.byteLength;
-  }
-  return out;
-}
-
 /**
  * Greasemonkey/Tampermonkey GM_xmlhttpRequest API.
  * @example
@@ -613,7 +600,15 @@ export function concatUint8(chunks: Uint8Array<ArrayBufferLike>[]): Uint8Array<A
  *   onload: (res) => console.log(res.responseText),
  * });
  */
-export const xmlhttpRequestFn = <T = any>(details: XmlhttpRequestFnDetails<T>, settings: any) => {
+
+/**
+ * 在后台实际进行 xhr / fetch 的操作
+ * Network Request in Background
+ * 只接受 "", "text", "arraybuffer", 及 "stream"
+ * @param details Input
+ * @param settings Control
+ */
+export const bgXhrRequestFn = async <T = any>(details: XmlhttpRequestFnDetails<T>, settings: any) => {
   /*
 
 
@@ -641,13 +636,13 @@ context a property which will be added to the response object
 
   const isBufferStream = details.responseType === "stream";
 
+  let xhrResponseType: "arraybuffer" | "text" | "" = "";
+
   const useFetch = isFetch || !!redirect || anonymous || isBufferStream;
   console.log("useFetch", isFetch, !!redirect, anonymous, isBufferStream);
 
   const prepareXHR = async () => {
     let rawData = (details.data = await details.data);
-    // let rawData =
-    //   settings.encodedData !== undefined ? ((await decodeBody(settings.encodedData)) as GMXHRDataType) : details.data;
 
     console.log("rawData", rawData);
 
@@ -670,7 +665,7 @@ context a property which will be added to the response object
       baseXHR.abort();
     };
 
-    const url = typeof details.url === "object" ? await convObjectToURL(details.url) : details.url;
+    const url = details.url;
     if (details.overrideMimeType) {
       baseXHR.overrideMimeType(details.overrideMimeType);
     }
@@ -687,7 +682,7 @@ context a property which will be added to the response object
         canTriggerFinalStateChangeEvent = true;
         if (finalStateChangeEvent) callback(finalStateChangeEvent);
       } else if (eventType === "readystatechange" && xhr.readyState === 4) {
-        // readyState4 的readystatechange或會重覆，見 https://github.com/violentmonkey/violentmonkey/issues/1862
+        // readyState4 的readystatechange或会重复，见 https://github.com/violentmonkey/violentmonkey/issues/1862
         if (!canTriggerFinalStateChangeEvent) {
           finalStateChangeEvent = evt;
           return;
@@ -696,32 +691,21 @@ context a property which will be added to the response object
       canTriggerFinalStateChangeEvent = false;
       finalStateChangeEvent = null;
 
-      // contentType 和 responseHeaders 只讀一次
+      // contentType 和 responseHeaders 只读一次
       contentType = contentType || xhr.getResponseHeader("Content-Type") || "";
       if (contentType && !responseHeaders) {
         responseHeaders = xhr.getAllResponseHeaders();
       }
-      console.log(1313000, xhr instanceof FetchXHR, eventType, xhr.responseType, xhr.readyState);
+      console.log(1313000, xhr instanceof FetchXHR, eventType, xhrResponseType, xhr.readyState);
       if (!(xhr instanceof FetchXHR)) {
         const response = xhr.response;
-        console.log(1313001, eventType, xhr.responseType);
+        console.log(1313001, eventType, xhrResponseType);
         if (xhr.readyState === 4 && eventType === "readystatechange") {
-          console.log(1313002, eventType, xhr.responseType);
-          if (xhr.responseType === "" || xhr.responseType === "text") {
+          console.log(1313002, eventType, xhrResponseType);
+          if (xhrResponseType === "" || xhrResponseType === "text") {
             settings.onDataReceived({ chunk: false, type: "text", data: xhr.responseText });
-          } else if (xhr.responseType === "arraybuffer" && response instanceof ArrayBuffer) {
+          } else if (xhrResponseType === "arraybuffer" && response instanceof ArrayBuffer) {
             settings.onDataReceived({ chunk: false, type: "arraybuffer", data: response });
-          } else if (xhr.responseType === "blob" && isThisBlobObj(response)) {
-            settings.onDataReceived({ chunk: false, type: "blob", data: response });
-          } else if (xhr.responseType === "document") {
-            // SC的處理是把 document 當作 blob 處理。僅保留這處理實現完整工具庫功能
-            let data = "";
-            if (response instanceof Document) {
-              data = new XMLSerializer().serializeToString(response);
-            }
-            settings.onDataReceived({ chunk: false, type: "document", data: data });
-          } else if (xhr.responseType === "json" && xhr.response && typeof xhr.response === "object") {
-            settings.onDataReceived({ chunk: false, type: "json", data: JSON.stringify(xhr.response) });
           }
         }
       }
@@ -776,13 +760,20 @@ context a property which will be added to the response object
     baseXHR.onloadend = callback;
 
     baseXHR.open(details.method ?? "GET", url, true, details.user, details.password);
+
+    if (details.responseType === "blob" || details.responseType === "document") {
+      const err = new Error(
+        "Invalid Internal Calling. The internal network function shall only do text/arraybuffer/stream"
+      );
+      throw err;
+    }
     // "" | "arraybuffer" | "blob" | "document" | "json" | "text"
     if (details.responseType === "json") {
       // 故意忽略，json -> text，兼容TM
     } else if (details.responseType === "stream") {
-      baseXHR.responseType = "arraybuffer";
+      xhrResponseType = baseXHR.responseType = "arraybuffer";
     } else if (details.responseType) {
-      baseXHR.responseType = details.responseType;
+      xhrResponseType = baseXHR.responseType = details.responseType;
     }
     if (details.timeout) baseXHR.timeout = details.timeout;
     baseXHR.withCredentials = true;
@@ -869,337 +860,5 @@ context a property which will be added to the response object
     baseXHR.send(rawData ?? null);
   };
 
-  prepareXHR();
+  await prepareXHR();
 };
-
-/**
- * Promise-based version of GM_xmlhttpRequest (with capital "H").
- * @example
- * const res = await GM.xmlHttpRequest({ url: 'https://example.com/' });
- * console.log(res.responseText);
- */
-/*
-export const xmlhttpRequestFnAsync = <T = any>(
-  details: GMRequestDetails<T>
-): Promise<GMResponse<T>> & GMRequestHandle => {
-  let abort = null;
-  const ret = new Promise((resolve, reject) => {
-    const r = xmlhttpRequestFn(details);
-    abort = r.abort;
-  }) as Promise<GMResponse<T>> & GMRequestHandle;
-  ret.abort = abort!;
-  return ret;
-};
-*/
-
-/**
- * Polyfill encoder for browser's inability to send complex types over extension messaging
- * (Counterpart to decodeBody)
- */
-export async function encodeBody(body: GMXHRDataType): Promise<EncodedBody | null | undefined | string> {
-  if (!body) {
-    return body as null | undefined | "";
-  }
-  if (body instanceof ReadableStream) {
-    body = await new Response(body).blob();
-  }
-
-  // --- FormData ---
-  if (body instanceof FormData) {
-    // Turn into an array of [key, value]
-    const arr = [] as [
-      string,
-      (
-        | string
-        | {
-            dataURL: string;
-            filename?: string;
-            type: string;
-          }
-      ),
-    ][];
-    for (const [key, value] of body.entries()) {
-      // If it's a Blob/File, we can't send it directly → convert to base64 data URL
-      if (isThisBlobObj(value)) {
-        const valueBlob = value as Blob | File;
-        const base64 = await blobToDataURL(valueBlob);
-        if ((valueBlob as File).name) {
-          // File
-          arr.push([key, { dataURL: base64, filename: (valueBlob as File).name, type: valueBlob.type }]);
-        } else {
-          // Blob
-          arr.push([key, { dataURL: base64, type: valueBlob.type }]);
-        }
-      } else {
-        arr.push([key, `${value}`]);
-      }
-    }
-    return [arr, "fd"];
-  }
-
-  // --- URLSearchParams ---
-  if (body instanceof URLSearchParams) {
-    return [body.toString(), "usp"];
-  }
-
-  // --- Blob / File ---
-  if (body instanceof Blob) {
-    const dataURL = await blobToDataURL(body);
-    return [dataURL, body.type || "application/octet-stream"];
-  }
-
-  // --- ArrayBuffer or TypedArray ---
-  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
-    const uint8 = new Uint8Array<ArrayBuffer>(body instanceof ArrayBuffer ? body : body.buffer);
-    const dataURL = uint8ToDataURL(uint8, "application/octet-stream");
-    return [dataURL, "application/octet-stream"];
-  }
-
-  // --- String or JSON object ---
-  if (typeof body === "object") {
-    // Assume JSON
-    let str;
-    try {
-      str = JSON.stringify(body);
-    } catch (_e: any) {
-      str = Array.isArray(body) ? "[]" : "{}";
-    }
-    const blob = new Blob([str], { type: "application/json" });
-    const dataURL = await blobToDataURL(blob);
-    return [dataURL, blob.type];
-  }
-
-  // --- Raw string ---
-  return body;
-}
-
-/**
- * Counterpart to encodeBody(body): decodes a transported body triple back into a sendable body.
- * Input tuple:  [encodedBody, type, wasBlob]
- * Output tuple: [decodedBody, contentType]
- *
- * - type === 'fd'  -> reconstruct FormData from flattened entries
- * - type === 'usp' -> set application/x-www-form-urlencoded;charset=UTF-8
- * - other truthy   -> treat encodedBody as a data URL, decode to bytes (Uint8Array)
- * - null/undefined -> passthrough (string/undefined/null/etc.)
- */
-
-const FORM_URLENCODED = "application/x-www-form-urlencoded";
-const CHARSET_UTF8 = "charset=UTF-8";
-
-type EncodedBodyFD = [
-  string,
-  (
-    | string
-    | {
-        dataURL: string;
-        filename?: string;
-        type: string;
-      }
-  ),
-];
-
-export type EncodedBody =
-  | [encoded: EncodedBodyFD[], type: "fd"]
-  | [encoded: string, type: "usp"]
-  | [encoded: string, type: string] // data URL + MIME hint
-  | [encoded: string, type: null];
-
-export type DecodedBody = [body: BodyInit | Uint8Array<ArrayBufferLike>, contentType: string | null];
-
-export async function decodeBody(
-  x: EncodedBody | null | undefined | string
-): Promise<DecodedBody | null | undefined | string> {
-  if (!x || typeof x === "string") return x;
-  const [body, type] = x;
-  // ---- FormData ----
-  if (type === "fd") {
-    // Expecting `body` to be an array of [key, value].
-    // Values that look like data URLs will be turned back into Blob; others remain strings.
-    const fd = new FormData();
-    const entries = (body as EncodedBodyFD[]) ?? [];
-    for (const [key, val] of entries) {
-      if (typeof val === "string") {
-        fd.append(key, String(val));
-      } else if (val.filename) {
-        const { mime, data } = parseDataURL(val.dataURL);
-        const type = val.type || mime || "application/octet-stream";
-        const filename = typeof val.filename === "string" ? val.filename : "blob";
-        const file = new File([data], filename, { type });
-        fd.append(key, file);
-      } else {
-        const { mime, data } = parseDataURL(val.dataURL);
-        const type = val.type || mime || "application/octet-stream";
-        const blob = new Blob([data], { type });
-        // We don't have a preserved filename; browsers will use "blob" by default.
-        fd.append(key, blob);
-      }
-    }
-    return [fd, ""]; // let the browser set multipart/form-data; boundary=...
-  }
-
-  // ---- URLSearchParams string ----
-  if (type === "usp") {
-    // Body should already be a serialized string like "a=1&b=2"
-    return [body as string, `${FORM_URLENCODED};${CHARSET_UTF8}`];
-  }
-
-  // ---- data URL -> bytes (Uint8Array) ----
-  if (type !== null) {
-    // `body` should be a data URL string e.g. "data:<mime>;base64,AAAA..."
-    const { mime, data } = parseDataURL(String(body));
-    const contentType = mime || String(type) || "application/octet-stream";
-    return [data, contentType];
-  }
-
-  // ---- passthrough (plain string) ----
-  return body;
-}
-
-/* ---------- Helper functions ---------- */
-
-/** Convert a Blob/File to base64 data URL */
-function blobToDataURL(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.onabort = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/** Convert Uint8Array to base64 data URL of given MIME */
-function uint8ToDataURL(uint8: Uint8Array<ArrayBufferLike>, mimeType: string): string {
-  const encoded = uint8ToBase64(uint8);
-  return `data:${mimeType};base64,${encoded}`;
-}
-
-/**
- * Parse a data URL into { mime, data }.
- * Supports base64 and (rare) non-base64 payloads. For our use it’s base64.
- */
-function parseDataURL(url: string): { mime: string | null; data: Uint8Array<ArrayBuffer> } {
-  if (!url.startsWith("data:")) throw new Error("Expected a data URL");
-  // data:[<media-type>][;base64],<data>
-  const commaIdx = url.indexOf(",");
-  if (commaIdx < 0) throw new Error("Malformed data URL");
-
-  const meta = url.slice(5, commaIdx); // [<media-type>][;base64],
-  const payload = url.slice(commaIdx + 1); // <data>
-  const isBase64 = meta.includes(";base64");
-  const j = meta.indexOf(";");
-  const mime = j > 0 ? meta.substring(0, j) : null;
-
-  if (isBase64) return { mime, data: base64ToUint8(payload) };
-
-  // Ensure ArrayBuffer backing
-  const bytes = new TextEncoder().encode(decodeURIComponent(payload));
-  const ab = new ArrayBuffer(bytes.byteLength);
-  const result = new Uint8Array<ArrayBuffer>(ab);
-  result.set(bytes);
-  return { mime, data: result };
-}
-
-/** Base64 -> Uint8Array (browser-safe) */
-export function base64ToUint8(b64: string): Uint8Array<ArrayBuffer> {
-  if (typeof (Uint8Array as any).fromBase64 === "function") {
-    // JS 2025
-    return (Uint8Array as any).fromBase64(b64) as Uint8Array<ArrayBuffer>;
-  } else if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") {
-    // Node.js
-    return Uint8Array.from(Buffer.from(b64, "base64"));
-  } else {
-    // Fallback
-    const bin = atob(b64);
-    const ab = new ArrayBuffer(bin.length);
-    const out = new Uint8Array<ArrayBuffer>(ab); // <- Uint8Array<ArrayBuffer>
-    for (let i = 0, l = bin.length; i < l; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-}
-
-export function uint8ToBase64(uint8arr: Uint8Array<ArrayBufferLike>): string {
-  if (typeof (uint8arr as any).toBase64 === "function") {
-    // JS 2025
-    return (uint8arr as any).toBase64() as string;
-  } else if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") {
-    // Node.js
-    return Buffer.from(uint8arr).toString("base64") as string;
-  } else {
-    // Fallback
-    let binary = "";
-    let i = 0;
-    while (uint8arr.length - i > 65535) {
-      binary += String.fromCharCode(...uint8arr.slice(i, i + 65535));
-      i += 65535;
-    }
-    binary += String.fromCharCode(...(i ? uint8arr.slice(i) : uint8arr));
-    return btoa(binary) as string;
-  }
-}
-
-export function textToXMLDoc(text: string): Document {
-  if (typeof DOMParser === "undefined") {
-    throw new Error("DOMParser is undefined. It should not be called directly in Service Worker.");
-  }
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(text, "application/xml");
-  return xmlDoc;
-}
-
-export const convObjectToURL = async (object: string | URL | Blob | File | undefined | null) => {
-  let url = "";
-  if (typeof object === "string") {
-    url = object;
-  } else if (object instanceof URL) {
-    url = object.href;
-  } else if (object instanceof Blob) {
-    // 不使用 blob URL
-    // 1. service worker 不能生成 blob URL
-    // 2. blob URL 有效期管理麻煩
-
-    const blob = object;
-    url = await blobToDataURL(blob);
-    await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string; // e.g., "data:text/plain;base64,SGVsbG8gd29ybGQh"
-        resolve(dataUrl);
-      };
-      reader.onerror = reject;
-      reader.onabort = reject;
-
-      reader.readAsDataURL(blob);
-    });
-  }
-  return url;
-};
-
-// Split Uint8Array (or ArrayBuffer) into 2MB chunks as Uint8Array views
-export function chunkUint8(src: Uint8Array | ArrayBuffer, chunkSize = 2 * 1024 * 1024) {
-  const u8 = src instanceof Uint8Array ? src : new Uint8Array(src);
-  const chunks = [];
-  for (let i = 0; i < u8.length; i += chunkSize) {
-    chunks.push(u8.subarray(i, Math.min(i + chunkSize, u8.length)));
-  }
-  return chunks; // array of Uint8Array views
-}
-
-// function mergeUint8Chunks(chunks) {
-//   let totalLength = 0;
-//   for (const chunk of chunks) {
-//     result.set(chunk, offset);
-//     offset += chunk.length;
-//   }
-//   const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
-//   const result = new Uint8Array(totalLength);
-
-//   let offset = 0;
-//   for (const chunk of chunks) {
-//     result.set(chunk, offset);
-//     offset += chunk.length;
-//   }
-
-//   return result; // Uint8Array
-// }

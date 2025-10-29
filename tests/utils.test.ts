@@ -5,7 +5,6 @@ import { newMockXhr } from "mock-xmlhttprequest";
 import type { Script, ScriptRunResource } from "@App/app/repo/scripts";
 import { ScriptDAO } from "@App/app/repo/scripts";
 import GMApi from "@App/app/service/content/gm_api";
-import { isThisBlobObj } from "@App/pkg/utils/utils";
 import { setMockNetworkResponse } from "./shared";
 
 const realXMLHttpRequest = global.XMLHttpRequest;
@@ -121,7 +120,7 @@ describe("测试GMApi环境 - XHR", async () => {
         responseType: "blob",
         onload: (res) => {
           o.responseContent = "";
-          if (!isThisBlobObj(res.response)) {
+          if (!(res.response instanceof Blob)) {
             resolve(false);
             return;
           }
@@ -173,7 +172,7 @@ describe("测试GMApi环境 - XHR", async () => {
         responseType: "blob",
         url: "https://mock-xmlhttprequest.test/",
         onload: (res) => {
-          if (!isThisBlobObj(res.response)) {
+          if (!(res.response instanceof Blob)) {
             resolve(false);
             return;
           }

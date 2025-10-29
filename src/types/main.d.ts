@@ -60,13 +60,22 @@ declare namespace GMSend {
     redirect?: "follow" | "error" | "manual";
   }
 
-  interface XHRFormData {
-    type?: "file" | "text";
+  interface XHRFormDataFile {
+    type: "file";
     key: string;
     val: string;
-    filename?: string;
-    lastModified?: number;
+    mimeType: string;
+    filename: string;
+    lastModified: number;
   }
+
+  interface XHRFormDataText {
+    type: "text";
+    key: string;
+    val: string;
+  }
+
+  type XHRFormData = XHRFormDataFile | XHRFormDataText;
 }
 
 declare namespace globalThis {

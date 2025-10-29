@@ -492,7 +492,7 @@ declare namespace GMTypes {
 
   interface XHRDetails {
     method?: "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS";
-    url: string;
+    url: string | URL | File | Blob;
     headers?: { [key: string]: string };
     data?: string | FormData | Blob;
     cookie?: string;
