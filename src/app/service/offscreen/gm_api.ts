@@ -92,7 +92,7 @@ export default class GMApi {
     const con = sender.getConnect(); // con can be undefined
     if (!con) throw new Error("offscreen xmlHttpRequest: Connection is undefined");
     console.log(38812, details);
-    bgXhrInterface(details, { finalUrl: "", responseHeaders: null }, con);
+    bgXhrInterface(details, { finalUrl: "", responseHeaders: "" }, con);
   }
 
   textarea: HTMLTextAreaElement = document.createElement("textarea");

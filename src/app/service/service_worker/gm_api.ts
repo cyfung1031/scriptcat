@@ -833,30 +833,76 @@ export default class GMApi {
     if (!msgConn) {
       throw new Error("GM_xmlhttpRequest ERROR: msgConn is undefined");
     }
+    let isConnDisconnected = false;
+    msgConn.onDisconnect(() => {
+      isConnDisconnected = true;
+    });
+
+    // 关联自己生成的请求id与chrome.webRequest的请求id
+    // 隨機生成(同步)，不需要 chrome.storage 存取
+    const u1 = Math.floor(Date.now()).toString(36);
+    const u2 = Math.floor(Math.random() * 2514670967279938 + 1045564536402193).toString(36);
+    const markerID = `MARKER::${u1}_${u2}`;
+
+    let resultParamStatusCode = 0;
+    let resultParamResponseHeader = "";
+    let resultParamFinalUrl = "";
+    const resultParam: RequestResultParams = {
+      get statusCode() {
+        const responsed = headersReceivedMap.get(markerID);
+        if (responsed && typeof responsed.statusCode === "number") {
+          resultParamStatusCode = responsed.statusCode;
+          responsed.statusCode = null; // 設為 null 避免重覆處理
+        }
+        return resultParamStatusCode;
+      },
+      get responseHeaders() {
+        const responsed = headersReceivedMap.get(markerID);
+        if (responsed && responsed.responseHeaders) {
+          let s = "";
+          for (const h of responsed.responseHeaders) {
+            s += `${h.name}: ${h.value}\n`;
+          }
+          resultParamResponseHeader = s;
+          responsed.responseHeaders = null; // 設為 null 避免重覆處理
+        }
+        return resultParamResponseHeader;
+      },
+      get finalUrl() {
+        resultParamFinalUrl = redirectedUrls.get(markerID) || "";
+        return resultParamFinalUrl;
+      },
+    };
+
     const throwErrorFn = (error: string) => {
-      msgConn.sendMessage({
-        action: "onerror",
-        data: {
-          error: `${error}`,
-        },
-      });
+      console.log(5992, resultParam.statusCode, resultParam.responseHeaders);
+      if (!isConnDisconnected) {
+        msgConn.sendMessage({
+          action: "onerror",
+          data: {
+            status: resultParam.statusCode,
+            responseHeaders: resultParam.responseHeaders,
+            error: `${error}`,
+            readyState: 4, // ERROR. DONE.
+          },
+        });
+      }
       return new Error(`${error}`);
     };
-    if (request.extraCode === 0x30) {
-      throw throwErrorFn("unlistedConnect");
-    }
+
     const param1 = request.params[0];
     console.log(377102, param1);
     if (!param1) {
       throw throwErrorFn("param is failed");
     }
+    if (request.extraCode === 0x30) {
+      // 'Refused to connect to "https://nonexistent-domain-abcxyz.test/": This domain is not a part of the @connect list'
+      // 'Refused to connect to "https://example.org/": URL is blacklisted'
+      const msg = `Refused to connect to "${param1.url}": This domain is not a part of the @connect list`;
+      throw throwErrorFn(msg);
+    }
     try {
       // 先处理unsafe hearder
-      // 关联自己生成的请求id与chrome.webRequest的请求id
-      // 隨機生成(同步)，不需要 chrome.storage 存取
-      const u1 = Math.floor(Date.now()).toString(36);
-      const u2 = Math.floor(Math.random() * 2514670967279938 + 1045564536402193).toString(36);
-      const markerID = `MARKER::${u1}_${u2}`;
 
       // 处理cookiePartition
       // 详见 https://github.com/scriptscat/scriptcat/issues/392
@@ -871,35 +917,6 @@ export default class GMApi {
 
       // 添加请求header
       await this.buildDNRRule(markerID, param1, sender);
-      let resultParamStatusCode = 0;
-      let resultParamResponseHeader = "";
-      let resultParamFinalUrl = "";
-      const resultParam: RequestResultParams = {
-        get statusCode() {
-          const responsed = headersReceivedMap.get(markerID);
-          if (responsed && typeof responsed.statusCode === "number") {
-            resultParamStatusCode = responsed.statusCode;
-            responsed.statusCode = null; // 設為 null 避免重覆處理
-          }
-          return resultParamStatusCode;
-        },
-        get responseHeaders() {
-          const responsed = headersReceivedMap.get(markerID);
-          if (responsed && responsed.responseHeaders) {
-            let s = "";
-            for (const h of responsed.responseHeaders) {
-              s += `${h.name}: ${h.value}\n`;
-            }
-            resultParamResponseHeader = s;
-            responsed.responseHeaders = null; // 設為 null 避免重覆處理
-          }
-          return resultParamResponseHeader;
-        },
-        get finalUrl() {
-          resultParamFinalUrl = redirectedUrls.get(markerID) || "";
-          return resultParamFinalUrl;
-        },
-      };
       // let finalUrl = "";
       // 等待response
 
@@ -940,6 +957,9 @@ export default class GMApi {
               get responseHeaders() {
                 return resultParam.responseHeaders;
               },
+              get status() {
+                return resultParam.statusCode;
+              },
               loadendCleanUp() {
                 loadendCleanUp();
               },
@@ -956,7 +976,8 @@ export default class GMApi {
           data = {
             ...data,
             finalUrl: resultParam.finalUrl, // 替换finalUrl
-            responseHeaders: resultParam.responseHeaders || data.responseHeaders, // 替换msg.data.responseHeaders
+            responseHeaders: resultParam.responseHeaders || data.responseHeaders || "", // 替换msg.data.responseHeaders
+            status: resultParam.statusCode || data.statusCode || data.status,
           };
           msg = {
             action: msg.action,
@@ -965,7 +986,9 @@ export default class GMApi {
           if (msg.action === "onloadend") {
             loadendCleanUp();
           }
-          msgConn.sendMessage(msg);
+          if (!isConnDisconnected) {
+            msgConn.sendMessage(msg);
+          }
         });
         msgConn.onDisconnect(() => {
           // 关闭连接
@@ -1253,16 +1276,21 @@ export default class GMApi {
     if (!msgConn) {
       throw new Error("GM_download ERROR: msgConn is undefined");
     }
+    let isConnDisconnected = false;
+    msgConn.onDisconnect(() => {
+      isConnDisconnected = true;
+    });
     const params = request.params[0];
     // 替换掉windows下文件名的非法字符为 -
     const fileName = cleanFileName(params.name);
     // blob本地文件或显示指定downloadMode为"browser"则直接下载
     const startDownload = (blobURL: string, respond: any) => {
       if (!blobURL) {
-        msgConn.sendMessage({
-          action: "onerror",
-          data: respond,
-        });
+        !isConnDisconnected &&
+          msgConn.sendMessage({
+            action: "onerror",
+            data: respond,
+          });
         throw new Error("GM_download ERROR: blobURL is not provided.");
       }
       chrome.downloads.download(
@@ -1283,16 +1311,18 @@ export default class GMApi {
             console.error("GM_download ERROR: API Failure for chrome.downloads.download.");
             ok = false;
           }
-          if (ok) {
-            msgConn.sendMessage({
-              action: "onload",
-              data: respond,
-            });
-          } else {
-            msgConn.sendMessage({
-              action: "onerror",
-              data: respond,
-            });
+          if (!isConnDisconnected) {
+            if (ok) {
+              msgConn.sendMessage({
+                action: "onload",
+                data: respond,
+              });
+            } else {
+              msgConn.sendMessage({
+                action: "onerror",
+                data: respond,
+              });
+            }
           }
         }
       );
@@ -1313,6 +1343,7 @@ export default class GMApi {
         statusText: xhr.statusText,
         responseHeaders: xhr.responseHeaders,
       };
+      let msgToSend = null;
       switch (data.action) {
         case "onload": {
           const response = xhr.response;
@@ -1326,10 +1357,10 @@ export default class GMApi {
           break;
         }
         case "onerror":
-          msgConn.sendMessage({
+          msgToSend = {
             action: "onerror",
             data: respond,
-          });
+          };
           break;
         case "onprogress":
           respond.done = xhr.done;
@@ -1337,22 +1368,25 @@ export default class GMApi {
           respond.loaded = xhr.loaded;
           respond.total = xhr.total;
           respond.totalSize = xhr.total; // ??????
-          msgConn.sendMessage({
+          msgToSend = {
             action: "onprogress",
             data: respond,
-          });
+          };
           break;
         case "ontimeout":
-          msgConn.sendMessage({
+          msgToSend = {
             action: "ontimeout",
-          });
+          };
           break;
         case "onloadend":
-          msgConn.sendMessage({
+          msgToSend = {
             action: "onloadend",
             data: respond,
-          });
+          };
           break;
+      }
+      if (!isConnDisconnected && msgToSend) {
+        msgConn.sendMessage(msgToSend);
       }
     });
     const ret = this.GM_xmlhttpRequest(

@@ -12,9 +12,11 @@ import { type MessageConnect, type TMessageCommAction } from "@Packages/message/
  */
 export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect) => {
   const taskId = `${Date.now}:${Math.random()}`;
+  let isConnDisconnected = false;
   const settings = {
     onDataReceived: (param: { chunk: boolean; type: string; data: any }) => {
       stackAsyncTask(taskId, async () => {
+        if (isConnDisconnected) return;
         try {
           let buf: Uint8Array<ArrayBufferLike> | undefined;
           console.log(31812, param.data, param);
@@ -95,7 +97,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
       const data = {
         ...result,
         finalUrl: inRef.finalUrl,
-        responseHeaders: inRef.responseHeaders || result.responseHeaders,
+        responseHeaders: inRef.responseHeaders || result.responseHeaders || "",
       };
       const eventType = result.eventType;
       const msg: TMessageCommAction = {
@@ -106,6 +108,7 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
         inRef.loadendCleanUp?.();
       }
       stackAsyncTask(taskId, async () => {
+        if (isConnDisconnected) return;
         console.log(8001, msg);
         msgConn.sendMessage(msg);
       });
@@ -116,7 +119,8 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
     console.error(e);
   });
   msgConn.onDisconnect(() => {
+    isConnDisconnected = true;
     settings.abort?.();
-    console.warn("msgConn.onDisconnect");
+    // console.warn("msgConn.onDisconnect");
   });
 };

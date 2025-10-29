@@ -569,6 +569,7 @@ export class FetchXHR {
         return;
       }
 
+      this.readyState = FetchXHR.DONE;
       this.onerror?.({ type: "error" }, (err || "Unknown Error") as Error | string);
     } finally {
       this.controller = null;

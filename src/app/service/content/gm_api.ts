@@ -940,6 +940,7 @@ export default class GMApi extends GM_Base {
     }
     let connect: MessageConnect | null;
     const responseTypeOriginal = details.responseType?.toLocaleLowerCase() || "";
+    let doAbort: any = null;
     const handler = async () => {
       const [urlResolved, dataResolved] = await Promise.all([urlPromiseLike, dataPromise]);
       const u = new URL(urlResolved, window.location.href);
@@ -1015,6 +1016,43 @@ export default class GMApi extends GM_Base {
             contentType: string;
           } & Record<string, any>
         ) => {
+          let resError: Record<string, any> | null = null;
+          if (
+            (typeof res.error === "string" &&
+              res.status === 0 &&
+              !res.statusText &&
+              resultBuffers.length === 0 &&
+              resultTexts.length === 0) ||
+            res.error === "aborted"
+          ) {
+            resError = {
+              error: res.error as string,
+              readyState: res.readyState as 0 | 4 | 2 | 3 | 1,
+              // responseType: responseType as "text" | "arraybuffer" | "blob" | "json" | "document" | "stream" | "",
+              response: null,
+              responseHeaders: res.responseHeaders as string,
+              responseText: "",
+              status: 0,
+              statusText: "",
+            };
+          }
+          if (resError) {
+            return {
+              DONE: 4,
+              HEADERS_RECEIVED: 2,
+              LOADING: 3,
+              OPENED: 1,
+              UNSENT: 0,
+              RESPONSE_TYPE_TEXT: "text",
+              RESPONSE_TYPE_ARRAYBUFFER: "arraybuffer",
+              RESPONSE_TYPE_BLOB: "blob",
+              RESPONSE_TYPE_DOCUMENT: "document",
+              RESPONSE_TYPE_JSON: "json",
+              RESPONSE_TYPE_STREAM: "stream",
+              toString: () => "[object Object]", // follow TM
+              ...resError,
+            } as GMXHRResponseType;
+          }
           const param = {
             DONE: 4,
             HEADERS_RECEIVED: 2,
@@ -1115,6 +1153,10 @@ export default class GMApi extends GM_Base {
             response = undefined; // TM不使用null，使用undefined
           }
           return param;
+        };
+        doAbort = (data: any) => {
+          errorOccur = "AbortError";
+          details.onabort?.(makeXHRCallbackParam(data));
         };
 
         con.onMessage((msgData) => {
@@ -1296,8 +1338,7 @@ export default class GMApi extends GM_Base {
                 details.onerror?.(makeXHRCallbackParam(data) as GMXHRResponseTypeWithError);
                 break;
               case "onabort":
-                errorOccur = "AbortError";
-                details.onabort?.(makeXHRCallbackParam(data));
+                doAbort(data);
                 break;
               // case "onstream":
               //   controller?.enqueue(new Uint8Array(data));
@@ -1320,6 +1361,9 @@ export default class GMApi extends GM_Base {
         if (connect) {
           connect.disconnect();
           connect = null;
+        }
+        if (doAbort && details.onabort) {
+          details.onabort(doAbort?.({ error: "aborted", responseHeaders: "", readyState: 4 }) as GMXHRResponseType);
         }
       },
     };
