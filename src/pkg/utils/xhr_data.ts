@@ -1,5 +1,5 @@
 import { base64ToUint8, uint8ToBase64 } from "./utils_datatype";
-import { getOPFSTemp, setOPFSTemp } from "./opfs";
+// import { getOPFSTemp, setOPFSTemp } from "./opfs";
 
 export const typedArrayTypes = [
   Int8Array,
@@ -27,19 +27,21 @@ const innerToBlobUrl =
         // 执行端：content/page/offscreen/extension page
         return URL.createObjectURL(blob); // 多于36字元；浏览器重启会清掉
       }
-    : async (blob: Blob): Promise<string> => {
+    : async (_blob: Blob): Promise<string> => {
         // 执行端：service_worker
-        const filename = await setOPFSTemp(blob); // SW重启会清掉
-        return filename; // OPFS. 只传回36字元的uuid
+        throw "Invalid Call of innerToBlobUrl"; // 背景腳本在 offscreen 執行
+        // const filename = await setOPFSTemp(blob); // SW重启会清掉
+        // return filename; // OPFS. 只传回36字元的uuid
       };
 const innerFromBlobUrl = async (f: string): Promise<Blob> => {
   // 执行端：service_worker/offscreen
   if (f.length === 36) {
+    throw "Invalid Call of innerFromBlobUrl"; // 背景腳本在 offscreen 執行
     // OPFS
-    const file = await getOPFSTemp(f);
-    if (!file) throw new Error("OPFS Temp File is missing");
-    const blob = new Blob([file], { type: file.type }); // pure blob, zero-copy
-    return blob;
+    // const file = await getOPFSTemp(f);
+    // if (!file) throw new Error("OPFS Temp File is missing");
+    // const blob = new Blob([file], { type: file.type }); // pure blob, zero-copy
+    // return blob;
   } else {
     const res = await fetch(f);
     const blob = await res.blob();
