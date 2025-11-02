@@ -406,140 +406,148 @@ export class FetchXHR {
         }
       }
 
-      // Stream body for progress
-      let streamReader;
-      let streamReadable;
-      if (res.body === null) throw new Error("Response Body is null");
-      if (textDecoderStream) {
-        streamReadable = res.body?.pipeThrough(textDecoderStream);
-        if (!streamReadable) throw new Error("streamReadable is undefined.");
-      } else {
-        streamReader = res.body?.getReader();
-        if (!streamReader) throw new Error("streamReader is undefined.");
-      }
-
-      let didLoaded = false;
-
-      const contentLengthHeader = res.headers.get("content-length");
-      const total = contentLengthHeader ? Number(contentLengthHeader) : 0;
-      let loaded = 0;
-      const firstLoad = () => {
-        if (!didLoaded) {
-          didLoaded = true;
-          // Move to LOADING state as soon as we start reading
-          this.readyState = FetchXHR.LOADING;
-          this._emitReadyStateChange();
+      let customStatus = null;
+      if (res.body === null) {
+        if (res.type === "opaqueredirect") {
+          customStatus = 301;
+        } else {
+          throw new Error("Response Body is null");
         }
-      };
-      let streamDecoding = false;
-      const pushBuffer = (chunk: Uint8Array<ArrayBuffer> | string | undefined | null) => {
-        if (!chunk) return;
-        const added = typeof chunk === "string" ? chunk.length : chunk.byteLength;
-        if (added) {
-          loaded += added;
-          if (typeof chunk === "string") {
-            this.onDataReceived({ chunk: true, type: "text", data: chunk });
-          } else if (this.isBufferStream) {
-            this.onDataReceived({ chunk: true, type: "stream", data: chunk });
-          } else if (receiveAsPlainText) {
-            streamDecoding = true;
-            const data = textDecoder!.decode(chunk, { stream: true }); // keep decoder state between chunks
-            this.onDataReceived({ chunk: true, type: "text", data: data });
-          } else {
-            this.onDataReceived({ chunk: true, type: "buffer", data: chunk });
-          }
-
-          if (this.onprogress) {
-            this.onprogress({
-              type: "progress",
-              loaded, // decoded buffer bytelength. no specification for decoded or encoded. https://developer.mozilla.org/en-US/docs/Web/API/ProgressEvent/loaded
-              total, // Content-Length. The total encoded bytelength (gzip/br)
-              lengthComputable: false, // always assume compressed data. See https://developer.mozilla.org/en-US/docs/Web/API/ProgressEvent/lengthComputable
-            });
-          }
+      } else if (res.body !== null) {
+        // Stream body for progress
+        let streamReader;
+        let streamReadable;
+        if (textDecoderStream) {
+          streamReadable = res.body?.pipeThrough(textDecoderStream);
+          if (!streamReadable) throw new Error("streamReadable is undefined.");
+        } else {
+          streamReader = res.body?.getReader();
+          if (!streamReader) throw new Error("streamReader is undefined.");
         }
-      };
 
-      if (this.isBufferStream && streamReader) {
-        const streamReaderConst = streamReader;
-        let myController = null;
-        const makeController = async (controller: ReadableStreamDefaultController<any>) => {
-          try {
-            while (true) {
-              const { done, value } = await streamReaderConst.read();
-              firstLoad();
-              if (done) break;
-              controller.enqueue(new Uint8Array(value));
-              pushBuffer(value);
-            }
-            controller.close();
-          } catch {
-            controller.error("XHR failed");
+        let didLoaded = false;
+
+        const contentLengthHeader = res.headers.get("content-length");
+        const total = contentLengthHeader ? Number(contentLengthHeader) : 0;
+        let loaded = 0;
+        const firstLoad = () => {
+          if (!didLoaded) {
+            didLoaded = true;
+            // Move to LOADING state as soon as we start reading
+            this.readyState = FetchXHR.LOADING;
+            this._emitReadyStateChange();
           }
         };
-        responseOverrided = new ReadableStream<Uint8Array>({
-          start(controller) {
-            myController = controller;
-          },
-        });
-        this.response = responseOverrided;
-        await makeController(myController!);
-      } else if (streamReadable) {
-        // receiveAsPlainText
-        if (Symbol.asyncIterator in streamReadable && typeof streamReadable[Symbol.asyncIterator] === "function") {
-          // https://developer.mozilla.org/ja/docs/Web/API/ReadableStream
-          //@ts-ignore
-          for await (const chunk of streamReadable) {
-            firstLoad(); // ensure firstLoad() is always called
-            if (chunk.length) {
-              pushBuffer(chunk);
+        let streamDecoding = false;
+        const pushBuffer = (chunk: Uint8Array<ArrayBuffer> | string | undefined | null) => {
+          if (!chunk) return;
+          const added = typeof chunk === "string" ? chunk.length : chunk.byteLength;
+          if (added) {
+            loaded += added;
+            if (typeof chunk === "string") {
+              this.onDataReceived({ chunk: true, type: "text", data: chunk });
+            } else if (this.isBufferStream) {
+              this.onDataReceived({ chunk: true, type: "stream", data: chunk });
+            } else if (receiveAsPlainText) {
+              streamDecoding = true;
+              const data = textDecoder!.decode(chunk, { stream: true }); // keep decoder state between chunks
+              this.onDataReceived({ chunk: true, type: "text", data: data });
+            } else {
+              this.onDataReceived({ chunk: true, type: "buffer", data: chunk });
+            }
+
+            if (this.onprogress) {
+              this.onprogress({
+                type: "progress",
+                loaded, // decoded buffer bytelength. no specification for decoded or encoded. https://developer.mozilla.org/en-US/docs/Web/API/ProgressEvent/loaded
+                total, // Content-Length. The total encoded bytelength (gzip/br)
+                lengthComputable: false, // always assume compressed data. See https://developer.mozilla.org/en-US/docs/Web/API/ProgressEvent/lengthComputable
+              });
             }
           }
-        } else {
-          const streamReader = streamReadable.getReader();
+        };
+
+        if (this.isBufferStream && streamReader) {
+          const streamReaderConst = streamReader;
+          let myController = null;
+          const makeController = async (controller: ReadableStreamDefaultController<any>) => {
+            try {
+              while (true) {
+                const { done, value } = await streamReaderConst.read();
+                firstLoad();
+                if (done) break;
+                controller.enqueue(new Uint8Array(value));
+                pushBuffer(value);
+              }
+              controller.close();
+            } catch {
+              controller.error("XHR failed");
+            }
+          };
+          responseOverrided = new ReadableStream<Uint8Array>({
+            start(controller) {
+              myController = controller;
+            },
+          });
+          this.response = responseOverrided;
+          await makeController(myController!);
+        } else if (streamReadable) {
+          // receiveAsPlainText
+          if (Symbol.asyncIterator in streamReadable && typeof streamReadable[Symbol.asyncIterator] === "function") {
+            // https://developer.mozilla.org/ja/docs/Web/API/ReadableStream
+            //@ts-ignore
+            for await (const chunk of streamReadable) {
+              firstLoad(); // ensure firstLoad() is always called
+              if (chunk.length) {
+                pushBuffer(chunk);
+              }
+            }
+          } else {
+            const streamReader = streamReadable.getReader();
+            try {
+              while (true) {
+                const { done, value } = await streamReader.read();
+                firstLoad(); // ensure firstLoad() is always called
+                if (done) break;
+                pushBuffer(value);
+              }
+            } finally {
+              streamReader.releaseLock();
+            }
+          }
+        } else if (streamReader) {
           try {
             while (true) {
               const { done, value } = await streamReader.read();
               firstLoad(); // ensure firstLoad() is always called
-              if (done) break;
+              if (done) {
+                if (streamDecoding) {
+                  const data = textDecoder!.decode(); // flush trailing bytes
+                  // this.onDataReceived({ chunk: true, type: "text", data: data });
+                  pushBuffer(data);
+                }
+                break;
+              }
               pushBuffer(value);
             }
           } finally {
             streamReader.releaseLock();
           }
-        }
-      } else if (streamReader) {
-        try {
-          while (true) {
-            const { done, value } = await streamReader.read();
-            firstLoad(); // ensure firstLoad() is always called
-            if (done) {
-              if (streamDecoding) {
-                const data = textDecoder!.decode(); // flush trailing bytes
-                // this.onDataReceived({ chunk: true, type: "text", data: data });
-                pushBuffer(data);
-              }
-              break;
-            }
-            pushBuffer(value);
+        } else {
+          // console.log(211);
+          firstLoad();
+          // Fallback: no streaming support — read fully
+          const buf = new Uint8Array<ArrayBuffer>(await res.arrayBuffer());
+          pushBuffer(buf);
+          if (streamDecoding) {
+            const data = textDecoder!.decode(); // flush trailing bytes
+            // this.onDataReceived({ chunk: true, type: "text", data: data });
+            pushBuffer(data);
           }
-        } finally {
-          streamReader.releaseLock();
-        }
-      } else {
-        // console.log(211);
-        firstLoad();
-        // Fallback: no streaming support — read fully
-        const buf = new Uint8Array<ArrayBuffer>(await res.arrayBuffer());
-        pushBuffer(buf);
-        if (streamDecoding) {
-          const data = textDecoder!.decode(); // flush trailing bytes
-          // this.onDataReceived({ chunk: true, type: "text", data: data });
-          pushBuffer(data);
         }
       }
 
-      this.status = res.status;
+      this.status = customStatus || res.status;
       this.statusText = res.statusText ?? "";
       this.responseURL = res.url ?? this.url;
 
@@ -667,6 +675,7 @@ context a property which will be added to the response object
             }
             if (anonymous) {
               opts.credentials = "omit"; // ensures no cookies or auth headers are sent
+              // opts.referrerPolicy = "no-referrer"; // https://javascript.info/fetch-api
             }
           },
           isBufferStream,

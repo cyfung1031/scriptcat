@@ -12,7 +12,7 @@ export const setNetworkRequestCounter = (url: string) => {
       tabId: -1,
       requestId: counter,
       url: url,
-      initiator: `chrome-extension://${chrome.runtime.id}/`,
+      initiator: `chrome-extension://${chrome.runtime.id}`,
       timeStamp: Date.now(),
     });
   }

@@ -1020,7 +1020,7 @@ export default class GMApi extends GM_Base {
           let resError: Record<string, any> | null = null;
           if (
             (typeof res.error === "string" &&
-              res.status === 0 &&
+              (res.status === 0 || res.status >= 300 || res.status < 200) &&
               !res.statusText &&
               resultBuffers.length === 0 &&
               resultTexts.length === 0) ||
@@ -1033,7 +1033,7 @@ export default class GMApi extends GM_Base {
               response: null,
               responseHeaders: res.responseHeaders as string,
               responseText: "",
-              status: 0,
+              status: res.status as number,
               statusText: "",
             };
           }

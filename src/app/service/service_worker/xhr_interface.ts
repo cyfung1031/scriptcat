@@ -104,10 +104,11 @@ export const bgXhrInterface = (param1: any, inRef: any, msgConn: MessageConnect)
         action: `on${eventType}`,
         data: data,
       };
-      if (eventType === "loadend") {
-        inRef.loadendCleanUp?.();
-      }
       stackAsyncTask(taskId, async () => {
+        await inRef.fixMsg?.(msg);
+        if (eventType === "loadend") {
+          inRef.loadendCleanUp?.();
+        }
         if (isConnDisconnected) return;
         // console.log(8001, msg);
         msgConn.sendMessage(msg);
