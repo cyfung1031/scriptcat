@@ -171,11 +171,18 @@ export const checkHasUnsafeHeaders = (key: string) => {
   return false;
 };
 
+export enum ConnectMatch {
+  NONE = 0,
+  ALL = 1,
+  DOMAIN = 2,
+  SELF = 3,
+}
+
 export const getConnectMatched = (
   metadataConnect: string[] | undefined,
   reqURL: URL,
   sender: IGetSender
-): 0 | 1 | 2 | 3 => {
+): ConnectMatch => {
   if (metadataConnect?.length) {
     for (let i = 0, l = metadataConnect.length; i < l; i += 1) {
       const lowerMetaConnect = metadataConnect[i].toLowerCase();
@@ -189,17 +196,17 @@ export const getConnectMatched = (
             // ignore
           }
           if (senderURLObject) {
-            if (reqURL.hostname === senderURLObject.hostname) return 3;
+            if (reqURL.hostname === senderURLObject.hostname) return ConnectMatch.SELF;
           }
         }
       } else if (lowerMetaConnect === "*") {
-        return 1;
+        return ConnectMatch.ALL;
       } else if (`.${reqURL.hostname}`.endsWith(`.${lowerMetaConnect}`)) {
-        return 2;
+        return ConnectMatch.DOMAIN;
       }
     }
   }
-  return 0;
+  return ConnectMatch.NONE;
 };
 
 type NotificationData = {

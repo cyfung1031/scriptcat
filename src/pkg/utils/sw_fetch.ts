@@ -20,5 +20,7 @@ export const swFetch = (input: string | URL | Request, init?: RequestInit) => {
   }
   if (!stdUrl) return fetch(input, init);
   // 鎖一下 nwRequest 防止與 GM_xhr 竞争
+
+  console.log(109, "nwRequest");
   return stackAsyncTask(`nwRequest::${stdUrl}`, () => fetch(input, init));
 };

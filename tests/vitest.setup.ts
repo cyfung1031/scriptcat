@@ -3,6 +3,7 @@ import { initTestEnv } from "./utils";
 import "@testing-library/jest-dom/vitest";
 import { beforeAll, afterAll, vi } from "vitest";
 import { getMockNetworkResponse } from "./shared";
+import { setNetworkRequestCounter } from "@Packages/network-mock";
 
 chromeMock.init();
 initTestEnv();
@@ -520,12 +521,18 @@ beforeAll(() => {
     const { data, contentType, blob } = getMockNetworkResponse(request.url);
     const body = blob ? new MockBlob([data], { type: contentType }) : data;
 
-    // @ts-expect-error
-    return new MockResponse(body, {
+    const ret = new MockResponse(body, {
       status: 200,
       headers: { "Content-Type": contentType },
       url: request.url,
     });
+
+    if (typeof input === "string") {
+      setNetworkRequestCounter(input);
+    }
+
+    // @ts-expect-error
+    return ret;
   });
 
   // Install globals
