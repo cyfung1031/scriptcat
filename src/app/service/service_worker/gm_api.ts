@@ -814,7 +814,7 @@ export default class GMApi {
         if (connectMatched > 0) {
           return true;
         }
-        if (!askUnlistedConnect) {
+        if (!askUnlistedConnect && request.script.metadata.connect?.find((e) => !!e)) {
           request.extraCode = 0x30;
           return false;
         }
