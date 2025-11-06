@@ -25,7 +25,7 @@ import {
 } from "@arco-design/web-react/icon";
 import React, { useEffect, useState } from "react";
 import { RiMessage2Line } from "react-icons/ri";
-import semver from "semver";
+import { VersionCompare, versionCompare } from "@App/pkg/utils/semver";
 import { useTranslation } from "react-i18next";
 import ScriptMenuList from "../components/ScriptMenuList";
 import { getCurrentTab } from "@App/pkg/utils/utils";
@@ -242,7 +242,7 @@ function App() {
       </Collapse>
       <div className="flex flex-row arco-card-header !h-6">
         <span className="text-[12px] font-500">{`v${ExtVersion}`}</span>
-        {semver.lt(ExtVersion, version) && (
+        {versionCompare(ExtVersion, version) === VersionCompare.LESS && (
           // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
           <span
             onClick={() => {
