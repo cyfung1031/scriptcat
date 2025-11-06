@@ -152,7 +152,7 @@ export default class SubscribeManager extends Manager {
         oldVersion = "0.0.0";
       }
       // 对比版本大小
-      if (ltever(newVersion, oldVersion, logger)) {
+      if (ltever(newVersion, oldVersion)) {
         return Promise.resolve(false);
       }
       // 进行更新
