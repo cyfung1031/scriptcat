@@ -1,17 +1,14 @@
-export const enum VersionCompare {
+/* eslint-disable no-shadow */
+/* eslint-disable no-continue */
+export const enum VersionCompareCode {
   LESS = -1,
   EQUAL = 0,
   GREATER = 1,
 }
 
-// 对比版本大小 (ltever相容旧版用)
-export const ltever = (newVersion: string, oldVersion: string): boolean => {
-  return versionCompare(newVersion, oldVersion) <= 0;
-};
-
 // 参考 https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/version/format
 // 考虑 UserScript 的脚本号设计进行简化及修改
-export const versionCompare = (version1: string, version2: string): VersionCompare => {
+export const versionCompare = (version1: string, version2: string): VersionCompareCode => {
   // -1 if version1 < version2
   // 0 if version1 == version2
   // 1 if version1 > version2
@@ -46,4 +43,9 @@ export const versionCompare = (version1: string, version2: string): VersionCompa
     }
   }
   return 0;
+};
+
+// 对比版本大小 (ltever相容旧版用)
+export const ltever = (newVersion: string, oldVersion: string): boolean => {
+  return versionCompare(newVersion, oldVersion) <= 0;
 };

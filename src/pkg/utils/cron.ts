@@ -32,6 +32,7 @@ export function nextTime(crontab: string, date?: Date): string {
         return datetime.plus({ month: 1 }).toFormat("yyyy-MM 每月运行一次");
       case 5: // 每星期
         return datetime.plus({ week: 1 }).toFormat("yyyy-MM-dd 每星期运行一次");
+      default:
     }
     throw new Error("错误表达式");
   }
