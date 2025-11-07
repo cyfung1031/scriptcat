@@ -1061,6 +1061,7 @@ export default class GMApi {
           );
           return;
         }
+        console.log(37123, typeof XMLHttpRequest);
         // 再发送到offscreen, 处理请求
         const offscreenCon = await connect(this.msgSender, "offscreen/gmApi/xmlHttpRequest", param1);
         offscreenCon.onMessage((msg) => {
