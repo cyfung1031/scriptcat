@@ -11,13 +11,13 @@ import Cache from "@App/app/cache";
 const linterWorker = new Worker("/src/linter.worker.js");
 const editorWorker = new Worker("/src/editor.worker.js", { type: "module" });
 
-const getPartialBlob = (idx: number) => {
-  return fetch(chrome.runtime.getURL(`/src/ts.worker.js.part${idx}`)).then((resp) => {
-    return resp.ok ? resp.blob() : null;
-  }).catch(() => { return null });
-}
+const getPartialBlob = (idx: number): Promise<Blob | null> => fetch(
+  chrome.runtime.getURL(`/src/ts.worker.js.part${idx}`)
+).then((resp) => {
+  return resp.ok ? resp.blob() : null;
+}).catch(() => { return null });
 
-async function combineBlobsToUrl(blobs: Blob[], defaultType?: string) {
+const combineBlobsToUrl = async (blobs: Blob[], defaultType?: string): Promise<string> => {
   const arrayBuffers = [];
   let totalLength = 0;
 
@@ -60,7 +60,7 @@ const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.part0")).
       blobs.push(blob);
       blob = await getPartialBlob(++idx);
     }
-    const url = await combineBlobsToUrl(blobs, "text/javascript");
+    const url = await combineBlobsToUrl(blobs, "application/x-javascript");
     worker = new Worker(url, { type: "module" });
   } else {
     // 沒分割
