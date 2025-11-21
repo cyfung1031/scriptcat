@@ -1,11 +1,9 @@
-/* eslint-disable no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable no-await-in-loop */
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import dts from "@App/types/scriptcat";
 import Hook from "@App/app/service/hook";
 import { languages } from "monaco-editor";
-import pako from "pako";
 import Cache from "@App/app/cache";
 // import { isFirefox } from "./utils";
 
@@ -13,14 +11,59 @@ import Cache from "@App/app/cache";
 const linterWorker = new Worker("/src/linter.worker.js");
 const editorWorker = new Worker("/src/editor.worker.js", { type: "module" });
 
-const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.gz")).then((resp) => {
+const getPartialBlob = (idx: number) => {
+  return fetch(chrome.runtime.getURL(`/src/ts.worker.js.part${idx}`)).then((resp) => {
+    return resp.ok ? resp.blob() : null;
+  }).catch(() => { return null });
+}
+
+async function combineBlobsToUrl(blobs: Blob[], defaultType?: string) {
+  const arrayBuffers = [];
+  let totalLength = 0;
+
+  // Read all blobs into ArrayBuffers and compute total length
+  for (const blob of blobs) {
+    const arrayBuffer = await blob.arrayBuffer();
+    arrayBuffers.push(arrayBuffer);
+    totalLength += arrayBuffer.byteLength; // <-- sum, don't overwrite
+  }
+
+  // Allocate a single Uint8Array large enough for everything
+  const combined = new Uint8Array(totalLength);
+
+  // Copy each buffer into the combined array
+  let offset = 0;
+  for (const buffer of arrayBuffers) {
+    combined.set(new Uint8Array(buffer), offset);
+    offset += buffer.byteLength;
+  }
+
+  // Create a single Blob out of the combined data
+  const type = defaultType || blobs[0]?.type || 'application/octet-stream';
+  const combinedBlob = new Blob([combined], { type });
+
+  // Create a Blob URL
+  const blobUrl = URL.createObjectURL(combinedBlob);
+  return blobUrl;
+}
+
+
+const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.part0")).then((resp) => {
   return resp.ok ? resp.blob() : null;
 }).catch(() => { return null }).then(async (blob) => {
-  let worker;
+  let worker: Worker;
   if (blob) {
-    const result = pako.inflate(await blob.arrayBuffer()) as Uint8Array<ArrayBuffer>;
-    worker = new Worker(URL.createObjectURL(new Blob([result])), { type: "module" });
+    // 有分割
+    const blobs: Blob[] = [blob];
+    let idx = 0;
+    while (blob) {
+      blobs.push(blob);
+      blob = await getPartialBlob(++idx);
+    }
+    const url = await combineBlobsToUrl(blobs, "text/javascript");
+    worker = new Worker(url, { type: "module" });
   } else {
+    // 沒分割
     worker = new Worker("/src/ts.worker.js", { type: "module" });
   }
   return worker;

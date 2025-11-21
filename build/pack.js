@@ -8,28 +8,27 @@ const package = require("../package.json");
 
 // --- utils ---
 
-const MAX_CHUNK_SIZE = 3_000_000; // < 3 MB
+const MAX_CHUNK_SIZE = 3 * 1024 * 1024; // < 3 MiB
 
 function addFileInChunks(zip, filePath, toDir, baseName, maxChunkSize = MAX_CHUNK_SIZE) {
   const buffer = fs.readFileSync(filePath);
   let offset = 0;
-  let index = 0;
 
+  const chunks = [];
   while (offset < buffer.length) {
     const end = Math.min(offset + maxChunkSize, buffer.length);
-    const chunk = buffer.slice(offset, end);
-
-    // e.g. src/ts.worker.js.part0, src/ts.worker.js.part1, ...
-    const chunkPath = `${toDir}${baseName}.part${index}`;
-    zip.file(chunkPath, chunk);
-
+    const chunk = buffer.subarray(offset, end);
+    chunks.push(chunk);
     offset = end;
-    index += 1;
   }
+  const len = chunks.length;
 
-  // console.log(
-  //   `Split ${filePath} -> ${index} chunks (max ${maxChunkSize} bytes each)`
-  // );
+  for (let idx = 0; idx < len; idx += 1) {
+    const chunk = chunks[idx];
+    // e.g. src/ts.worker.js.part30, src/ts.worker.js.part31, ...
+    const chunkPath = `${toDir}${baseName}.part${idx}`;
+    zip.file(chunkPath, chunk);
+  }
 }
 
 const createJSZip = () => {
