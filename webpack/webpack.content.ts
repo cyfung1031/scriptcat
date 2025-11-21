@@ -1,27 +1,28 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import path from "path";
-import NodePolyfillPlugin from "node-polyfill-webpack-plugin";
 import merge from "webpack-merge";
+import HtmlWebpackPlugin from "html-webpack-plugin";
+import CopyPlugin from "copy-webpack-plugin";
+import { CleanWebpackPlugin } from "clean-webpack-plugin";
 import TerserPlugin from "terser-webpack-plugin";
 import common from "../webpack.config";
 
 const src = path.resolve(__dirname, "../src");
 const dist = path.resolve(__dirname, "../dist");
 
-// eslint文件
+// 不要分割的文件
 common.entry = {
-  "linter.worker": `${src}/linter.worker.ts`,
+  content: path.join(src, "content.ts"),
 };
 
 common.output = {
-  globalObject: "self",
   path: path.join(dist, "ext/src"),
   filename: "[name].js",
   clean: false,
 };
 
 common.optimization = {
-  minimize: false,
+  minimize: true,
   splitChunks: false,
   runtimeChunk: false,
   minimizer: [
@@ -38,13 +39,16 @@ common.optimization = {
 };
 
 // 移除插件
-common.plugins = [];
+common.plugins = common.plugins!.filter(
+  (plugin) =>
+    !(
+      plugin instanceof HtmlWebpackPlugin ||
+      plugin instanceof CopyPlugin ||
+      plugin instanceof CleanWebpackPlugin
+    )
+);
 
 export default merge(common, {
-  watch: true,
-  devtool: "inline-source-map",
-  plugins: [new NodePolyfillPlugin()],
-  resolve: {
-    mainFields: ["browser", "main", "module"],
-  },
+  plugins: [
+  ],
 });

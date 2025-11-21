@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // @ts-ignore
 // eslint-disable-next-line import/no-unresolved
 import dts from "@App/types/scriptcat";
@@ -5,31 +7,57 @@ import Hook from "@App/app/service/hook";
 import { languages } from "monaco-editor";
 import pako from "pako";
 import Cache from "@App/app/cache";
-import { isFirefox } from "./utils";
+// import { isFirefox } from "./utils";
 
 // 注册eslint
 const linterWorker = new Worker("/src/linter.worker.js");
+const editorWorker = new Worker("/src/editor.worker.js", { type: "module" });
+
+const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.gz")).then((resp) => {
+  return resp.ok ? resp.blob() : null;
+}).catch(() => { return null }).then(async (blob) => {
+  let worker;
+  if (blob) {
+    const result = pako.inflate(await blob.arrayBuffer()) as Uint8Array<ArrayBuffer>;
+    worker = new Worker(URL.createObjectURL(new Blob([result])), { type: "module" });
+  } else {
+    worker = new Worker("/src/ts.worker.js", { type: "module" });
+  }
+  return worker;
+});
 
 export default function registerEditor() {
-  // @ts-ignore
-  window.tsUrl = "";
 
-  fetch(chrome.runtime.getURL(`/src/ts.worker.js${isFirefox() ? ".gz" : ""}`))
-    .then((resp) => resp.blob())
-    .then(async (blob) => {
-      const result = pako.inflate(await blob.arrayBuffer());
-      // @ts-ignore
-      window.tsUrl = URL.createObjectURL(new Blob([result]));
-    });
+  // fetch(chrome.runtime.getURL(`/src/ts.worker.js${isFirefox() ? ".gz" : ""}`))
+  //   .then((resp) => resp.blob())
+  //   .then(async (blob) => {
+  //     const result = pako.inflate(await blob.arrayBuffer());
+  //     // @ts-ignore
+  //     window.tsUrl = URL.createObjectURL(new Blob([result]));
+  //   });
+  // // @ts-ignore
+  // window.MonacoEnvironment = {
+  //   getWorkerUrl(moduleId: any, label: any) {
+  //     if (label === "typescript" || label === "javascript") {
+  //       // return "/src/ts.worker.js";
+  //       // @ts-ignore
+  //       return window.tsUrl;
+  //     }
+  //     return "/src/editor.worker.js";
+  //   },
+  // };
+
   // @ts-ignore
+  window.tsUrl = "/src/ts.worker.js";
+
   window.MonacoEnvironment = {
-    getWorkerUrl(moduleId: any, label: any) {
+    // https://microsoft.github.io/monaco-editor/typedoc/interfaces/Environment.html#getWorker
+    // Returns Worker | Promise<Worker>
+    getWorker(workerId: string, label: string) {
       if (label === "typescript" || label === "javascript") {
-        // return "/src/ts.worker.js";
-        // @ts-ignore
-        return window.tsUrl;
+        return tsWorkerPromise;
       }
-      return "/src/editor.worker.js";
+      return editorWorker;
     },
   };
 
