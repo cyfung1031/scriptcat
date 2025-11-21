@@ -56,10 +56,10 @@ const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.part0")).
     // 有分割
     const blobs: Blob[] = [];
     let idx = 0;
-    while (blob) {
+    do {
       blobs.push(blob);
       blob = await getPartialBlob(++idx);
-    }
+    } while (blob);
     const url = await combineBlobsToUrl(blobs, "text/javascript");
     worker = new Worker(url, { type: "module" });
   } else {
