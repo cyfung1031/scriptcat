@@ -18,7 +18,6 @@ import type {
 import { getCurrentTab } from "@App/pkg/utils/utils";
 import type { SystemConfig } from "@App/pkg/config/config";
 import { CACHE_KEY_TAB_SCRIPT } from "@App/app/cache_key";
-import { timeoutExecution } from "@App/pkg/utils/timer";
 import { v5 as uuidv5 } from "uuid";
 import { getCombinedMeta } from "./utils";
 
@@ -35,9 +34,6 @@ const scriptCountMap = new Map<number, string>();
 
 // 已设定过 badge 的 tabId 集合；切换到「不显示数字」时用来清除既有 badge。
 const badgeShownSet = new Set<number>();
-
-// 用于 timeoutExecution 的唯一前缀 key（含随机片段），避免不同 tab 的排程互相覆盖。
-const cIdKey = `(cid_${Math.random()})`;
 
 // uuidv5 的命名空间：用来稳定生成 groupKey，将「相同性质」的 menu 合并显示。
 const groupKeyNS = "43b9b9b1-75b7-4054-801c-1b0ad6b6b07b";
@@ -69,7 +65,12 @@ let contextMenuUpdatePromise = Promise.resolve();
 // 呼叫 API 设置 Badge
 const apiSetBadge = (o: { text: string; tabId: number; backgroundColor?: string; textColor?: string }) => {
   const { text, tabId, backgroundColor, textColor } = o;
-  if (!text) badgeShownSet.delete(tabId);
+  if (!text && !badgeShownSet.has(tabId)) {
+    // 没有脚本不用显示 & 没有设置
+    return;
+  }
+  // 有 text 时，标记此 tab 的 badge 已设定，便于后续在「不显示」模式时进行清理。
+  text ? badgeShownSet.add(tabId) : badgeShownSet.delete(tabId);
   chrome.action.setBadgeText({
     text: text,
     tabId: tabId,
@@ -567,29 +568,19 @@ export class PopupService {
       map = runCountMap;
     } else {
       // 不显示数字
-      if (badgeShownSet.has(tabId)) {
-        apiSetBadge({ text: "", tabId });
-      }
+      apiSetBadge({ text: "", tabId });
       return;
     }
     const text = map.get(tabId);
-    if (typeof text !== "string") return;
-    if (!text && !badgeShownSet.has(tabId)) {
-      // 没有脚本不用显示 & 没有设置
-      return;
+    if (typeof text !== "string") return; // 页面载入事件未发生
+    if (text) {
+      const backgroundColor = await this.systemConfig.getBadgeBackgroundColor();
+      const textColor = await this.systemConfig.getBadgeTextColor();
+      apiSetBadge({ text, tabId, backgroundColor, textColor });
+    } else {
+      // 不显示数字
+      apiSetBadge({ text: "", tabId });
     }
-    const backgroundColor = await this.systemConfig.getBadgeBackgroundColor();
-    const textColor = await this.systemConfig.getBadgeTextColor();
-    // 标记此 tab 的 badge 已设定，便于后续在「不显示」模式时进行清理。
-    badgeShownSet.add(tabId);
-    timeoutExecution(
-      `${cIdKey}-tabId#${tabId}`,
-      () => {
-        if (!badgeShownSet.has(tabId)) return;
-        apiSetBadge({ text, tabId, backgroundColor, textColor });
-      },
-      50
-    );
   }
 
   init() {
