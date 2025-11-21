@@ -60,7 +60,7 @@ const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.part0")).
       blobs.push(blob);
       blob = await getPartialBlob(++idx);
     }
-    const url = await combineBlobsToUrl(blobs, "application/x-javascript");
+    const url = await combineBlobsToUrl(blobs, "text/javascript");
     worker = new Worker(url, { type: "module" });
   } else {
     // 沒分割
