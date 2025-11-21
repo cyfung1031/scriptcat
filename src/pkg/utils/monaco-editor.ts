@@ -54,7 +54,7 @@ const tsWorkerPromise = fetch(chrome.runtime.getURL("/src/ts.worker.js.part0")).
   let worker: Worker;
   if (blob) {
     // 有分割
-    const blobs: Blob[] = [blob];
+    const blobs: Blob[] = [];
     let idx = 0;
     while (blob) {
       blobs.push(blob);
