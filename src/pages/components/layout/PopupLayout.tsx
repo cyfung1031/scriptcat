@@ -5,7 +5,7 @@ import "./index.css";
 const PopupLayout: React.FC<{
   children: ReactNode;
 }> = ({ children }) => {
-  return <div style={{ borderBottom: "1px solid var(--color-neutral-3)" }}>{children}</div>;
+  return <div className="popup-layout">{children}</div>;
 };
 
 export default PopupLayout;

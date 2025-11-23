@@ -1,5 +1,5 @@
 import { Discord, DocumentationSite, ExtVersion, ExtServer } from "@App/app/const";
-import { Alert, Badge, Button, Card, Collapse, Dropdown, Menu, Switch, Tooltip } from "@arco-design/web-react";
+import { Alert, Badge, Button, Collapse, Dropdown, Menu, Switch, Tooltip } from "@arco-design/web-react";
 import {
   IconBook,
   IconBug,
@@ -383,168 +383,181 @@ function App() {
   return (
     <>
       <PopupWarnings isBlacklist={isBlacklist} />
-      <Card
-        size="small"
-        title={
-          <div className="flex justify-between">
-            <div className="text-xl inline-flex flex-row items-center gap-x-1">
-              <span>{"ScriptCat"}</span>
-            </div>
-            <div className="flex flex-row items-center">
-              <Switch size="small" className="mr-1" checked={isEnableScript} onChange={handleEnableScriptChange} />
-              <Button type="text" icon={<IconSettings />} iconOnly onClick={handleSettingsClick} />
-              <Badge count={checkUpdate.isRead ? 0 : 1} dot offset={[-8, 6]}>
-                <Button type="text" icon={<IconNotification />} iconOnly onClick={handleNotificationClick} />
-              </Badge>
-              <Dropdown
-                onVisibleChange={(visible) => {
-                  if (!visible) return;
-                  // 下拉开启时校正位置：视窗过小可能导致菜单显示超出可视区域
-                  setTimeout(() => {
-                    const dropdowns = document.getElementsByClassName("arco-dropdown");
-                    if (dropdowns.length > 0) {
-                      const dropdown = dropdowns[0] as HTMLElement;
-                      // 若面板 top 为负值则矫正为 0，避免被裁切
-                      if (parseInt(dropdown.style.top) < 0) {
-                        dropdown.style.top = "0px";
-                      }
-                    }
-                  }, 100);
-                }}
-                droplist={
-                  <Menu
-                    style={{
-                      maxHeight: "none",
-                    }}
-                    onClickMenuItem={handleMenuClick}
-                  >
-                    <Menu.Item key="newScript" className="flex flex-row items-center">
-                      <IconPlus style={iconStyle} />
-                      {t("create_script")}
-                    </Menu.Item>
-                    <Menu.Item
-                      key={`https://scriptcat.org/search?domain=${urlHost}`}
-                      className="flex flex-row items-center"
-                    >
-                      <IconSearch style={iconStyle} />
-                      {t("get_script")}
-                    </Menu.Item>
-                    <Menu.Item key={"checkUpdate"} className="flex flex-row items-center">
-                      <IconSync style={iconStyle} />
-                      {t("check_update")}
-                    </Menu.Item>
-                    <Menu.Item key="report_issue" className="flex flex-row items-center">
-                      <IconBug style={iconStyle} />
-                      {t("report_issue")}
-                    </Menu.Item>
-                    <Menu.Item key={`${DocumentationSite}${localePath}`} className="flex flex-row items-center">
-                      <IconBook style={iconStyle} />
-                      {t("project_docs")}
-                    </Menu.Item>
-                    <Menu.Item
-                      key={isChineseUser() ? "https://bbs.tampermonkey.net.cn/" : Discord}
-                      className="flex flex-row items-center"
-                    >
-                      <RiMessage2Line style={iconStyle} />
-                      {t("community")}
-                    </Menu.Item>
-                    <Menu.Item key="https://github.com/scriptscat/scriptcat" className="flex flex-row items-center">
-                      <IconGithub style={iconStyle} />
-                      {"GitHub"}
-                    </Menu.Item>
-                  </Menu>
-                }
-                trigger="click"
-              >
-                <Button type="text" icon={<IconMoreVertical />} iconOnly />
-              </Dropdown>
-            </div>
-          </div>
-        }
-        bodyStyle={{ padding: 0 }}
-      >
-        <Alert
-          style={{ display: showAlert ? "flex" : "none" }}
-          type="info"
-          content={<div dangerouslySetInnerHTML={{ __html: checkUpdate.notice || "" }} />}
-        />
-        <Collapse
-          bordered={false}
-          activeKey={collapseActiveKey}
-          onChange={(_, keys) => {
-            setCollapseActiveKey(keys);
-          }}
-          style={{ maxWidth: 640, maxHeight: 500, overflow: "auto" }}
+      <div className="flex flex-col">
+        {/* Header */}
+        <div
+          className="flex justify-between pt-1 pb-1 pl-4 pr-4"
+          style={{ borderBottom: "1px solid var(--color-neutral-3)" }}
         >
-          <CollapseItem
-            header={`${t("current_page_scripts")} (${normalScriptCounts.running}/${normalScriptCounts.total})`}
-            name="script"
-            style={{ padding: "0" }}
-            contentStyle={{ padding: "0" }}
-          >
-            <ScriptMenuList
-              script={scriptList}
-              isBackscript={false}
-              currentUrl={currentUrl}
-              menuExpandNum={menuExpandNum}
-            />
-          </CollapseItem>
-
-          <CollapseItem
-            header={`${t("enabled_background_scripts")} (${backScriptCounts.running}/${backScriptCounts.total})`}
-            name="background"
-            style={{
-              padding: "0",
-              // 未加载完成期间关闭动画，避免 collapseActiveKey 变更造成闪烁
-              ...(loading ? { transform: "none" } : { transform: "height 0.2s cubic-bezier(0.34, 0.69, 0.1, 1)" }),
-            }}
-            contentStyle={{ padding: "0" }}
-          >
-            <ScriptMenuList
-              script={backScriptList}
-              isBackscript={true}
-              currentUrl={currentUrl}
-              menuExpandNum={menuExpandNum}
-            />
-          </CollapseItem>
-        </Collapse>
-        <div className="flex flex-row arco-card-header !h-6">
-          {versionCompare(ExtVersion, checkUpdate.version) === VersionCompare.LESS ? (
-            <Tooltip content={`${t("popup.new_version_available")} (v${checkUpdate.version})`}>
-              <span
-                onClick={() => {
-                  window.open(`https://github.com/scriptscat/scriptcat/releases/tag/v${checkUpdate.version}`);
-                }}
-                className={`text-[12px] font-500 cursor-pointer underline underline-offset-2 text-blue-500 dark:text-blue-400`}
-              >{`v${ExtVersion}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 0 ? (
-            <Tooltip content={t("check_update")}>
-              <span
-                onClick={() => {
-                  setCheckUpdateStatus(1);
-                }}
-                className="text-[12px] font-500 cursor-pointer hover:underline hover:underline-offset-2"
-              >{`v${ExtVersion}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 1 ? (
-            <Tooltip content={t("checking_for_updates")}>
-              <span className="text-[12px] font-500">{`${t("checking_for_updates")}`}</span>
-            </Tooltip>
-          ) : checkUpdateStatus === 2 ? (
-            <Tooltip content={t("latest_version")}>
-              <span
-                onClick={() => {
-                  setCheckUpdateStatus(1);
-                }}
-                className="text-[12px] font-500 cursor-pointer hover:underline hover:underline-offset-2"
-              >{`${t("latest_version")}`}</span>
-            </Tooltip>
-          ) : (
-            <></>
-          )}
+          <div className="text-xl inline-flex flex-row items-center gap-x-1">
+            <span>{"ScriptCat"}</span>
+          </div>
+          <div className="flex flex-row items-center">
+            <Switch size="small" className="mr-1" checked={isEnableScript} onChange={handleEnableScriptChange} />
+            <Button type="text" icon={<IconSettings />} iconOnly onClick={handleSettingsClick} />
+            <Badge count={checkUpdate.isRead ? 0 : 1} dot offset={[-8, 6]}>
+              <Button type="text" icon={<IconNotification />} iconOnly onClick={handleNotificationClick} />
+            </Badge>
+            <Dropdown
+              onVisibleChange={(visible) => {
+                if (!visible) return;
+                // 下拉开启时校正位置：视窗过小可能导致菜单显示超出可视区域
+                setTimeout(() => {
+                  const dropdowns = document.getElementsByClassName("arco-dropdown");
+                  if (dropdowns.length > 0) {
+                    const dropdown = dropdowns[0] as HTMLElement;
+                    // 若面板 top 为负值则矫正为 0，避免被裁切
+                    if (parseInt(dropdown.style.top) < 0) {
+                      dropdown.style.top = "0px";
+                    }
+                  }
+                }, 100);
+              }}
+              droplist={
+                <Menu
+                  style={{
+                    maxHeight: "none",
+                  }}
+                  onClickMenuItem={handleMenuClick}
+                >
+                  <Menu.Item key="newScript" className="flex flex-row items-center">
+                    <IconPlus style={iconStyle} />
+                    {t("create_script")}
+                  </Menu.Item>
+                  <Menu.Item
+                    key={`https://scriptcat.org/search?domain=${urlHost}`}
+                    className="flex flex-row items-center"
+                  >
+                    <IconSearch style={iconStyle} />
+                    {t("get_script")}
+                  </Menu.Item>
+                  <Menu.Item key={"checkUpdate"} className="flex flex-row items-center">
+                    <IconSync style={iconStyle} />
+                    {t("check_update")}
+                  </Menu.Item>
+                  <Menu.Item key="report_issue" className="flex flex-row items-center">
+                    <IconBug style={iconStyle} />
+                    {t("report_issue")}
+                  </Menu.Item>
+                  <Menu.Item key={`${DocumentationSite}${localePath}`} className="flex flex-row items-center">
+                    <IconBook style={iconStyle} />
+                    {t("project_docs")}
+                  </Menu.Item>
+                  <Menu.Item
+                    key={isChineseUser() ? "https://bbs.tampermonkey.net.cn/" : Discord}
+                    className="flex flex-row items-center"
+                  >
+                    <RiMessage2Line style={iconStyle} />
+                    {t("community")}
+                  </Menu.Item>
+                  <Menu.Item key="https://github.com/scriptscat/scriptcat" className="flex flex-row items-center">
+                    <IconGithub style={iconStyle} />
+                    {"GitHub"}
+                  </Menu.Item>
+                </Menu>
+              }
+              trigger="click"
+            >
+              <Button type="text" icon={<IconMoreVertical />} iconOnly />
+            </Dropdown>
+          </div>
         </div>
-      </Card>
+        {/* Body */}
+        <div className="flex flex-col">
+          {/* Noification */}
+          <Alert
+            className="shrink-0 grow-0"
+            style={{ display: showAlert ? "flex" : "none" }}
+            type="info"
+            content={<div dangerouslySetInnerHTML={{ __html: checkUpdate.notice || "" }} />}
+          />
+          {/* List */}
+          <Collapse
+            bordered={false}
+            activeKey={collapseActiveKey}
+            onChange={(_, keys) => {
+              setCollapseActiveKey(keys);
+            }}
+            lazyload={true}
+            destroyOnHide={true}
+            triggerRegion="header"
+            className="max-w-[640px] max-h-[500px] overflow-auto popup-list"
+          >
+            <CollapseItem
+              header={`${t("current_page_scripts")} (${normalScriptCounts.running}/${normalScriptCounts.total})`}
+              name="script"
+              style={{ padding: "0" }}
+              contentStyle={{ padding: "0" }}
+              destroyOnHide={true}
+            >
+              <ScriptMenuList
+                script={scriptList}
+                isBackscript={false}
+                currentUrl={currentUrl}
+                menuExpandNum={menuExpandNum}
+              />
+            </CollapseItem>
+
+            <CollapseItem
+              header={`${t("enabled_background_scripts")} (${backScriptCounts.running}/${backScriptCounts.total})`}
+              name="background"
+              style={{
+                padding: "0",
+                // 未加载完成期间关闭动画，避免 collapseActiveKey 变更造成闪烁
+                ...(loading ? { transform: "none" } : { transform: "height 0.2s cubic-bezier(0.34, 0.69, 0.1, 1)" }),
+              }}
+              destroyOnHide={true}
+              contentStyle={{ padding: "0" }}
+            >
+              <ScriptMenuList
+                script={backScriptList}
+                isBackscript={true}
+                currentUrl={currentUrl}
+                menuExpandNum={menuExpandNum}
+              />
+            </CollapseItem>
+          </Collapse>
+          {/* Space */}
+          <div className="grow-1"></div>
+          {/* Version */}
+          <div className="shrink-0 grow-0 flex flex-row pt-1 pb-1 pl-4 pr-4">
+            {versionCompare(ExtVersion, checkUpdate.version) === VersionCompare.LESS ? (
+              <Tooltip content={`${t("popup.new_version_available")} (v${checkUpdate.version})`}>
+                <span
+                  onClick={() => {
+                    window.open(`https://github.com/scriptscat/scriptcat/releases/tag/v${checkUpdate.version}`);
+                  }}
+                  className={`text-[12px] font-500 cursor-pointer underline underline-offset-2 text-blue-500 dark:text-blue-400`}
+                >{`v${ExtVersion}`}</span>
+              </Tooltip>
+            ) : checkUpdateStatus === 0 ? (
+              <Tooltip content={t("check_update")}>
+                <span
+                  onClick={() => {
+                    setCheckUpdateStatus(1);
+                  }}
+                  className="text-[12px] font-500 cursor-pointer hover:underline hover:underline-offset-2"
+                >{`v${ExtVersion}`}</span>
+              </Tooltip>
+            ) : checkUpdateStatus === 1 ? (
+              <Tooltip content={t("checking_for_updates")}>
+                <span className="text-[12px] font-500">{`${t("checking_for_updates")}`}</span>
+              </Tooltip>
+            ) : checkUpdateStatus === 2 ? (
+              <Tooltip content={t("latest_version")}>
+                <span
+                  onClick={() => {
+                    setCheckUpdateStatus(1);
+                  }}
+                  className="text-[12px] font-500 cursor-pointer hover:underline hover:underline-offset-2"
+                >{`${t("latest_version")}`}</span>
+              </Tooltip>
+            ) : (
+              <></>
+            )}
+          </div>
+        </div>
+      </div>
     </>
   );
 }

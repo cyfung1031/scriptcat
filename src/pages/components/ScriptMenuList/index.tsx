@@ -1,22 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  Button,
-  Collapse,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Message,
-  Popconfirm,
-  Space,
-  Switch,
-} from "@arco-design/web-react";
+import { Button, Collapse, Empty, Form, Input, InputNumber, Message, Popconfirm, Switch } from "@arco-design/web-react";
 import {
   IconCaretDown,
   IconCaretUp,
   IconDelete,
   IconEdit,
-  IconMenu,
   IconMinus,
   IconPlus,
   IconSettings,
@@ -92,9 +80,9 @@ const MenuItem = React.memo(({ menuItems, uuid }: MenuItemProps) => {
         className="text-left"
         type="secondary"
         htmlType="submit"
-        icon={<IconMenu />}
+        icon={<IconSettings />}
         title={options?.title}
-        style={{ display: "block", width: "100%" }}
+        style={{ textOverflow: "ellipsis", overflow: "hidden" }}
       >
         {name}
         {options?.accessKey && `(${options.accessKey.toUpperCase()})`}
@@ -122,38 +110,44 @@ const CollapseHeader = React.memo(
   ({ item, onEnableChange }: CollapseHeaderProps) => {
     const { t } = useTranslation();
 
+    const headerTitle = item.enable
+      ? item.runNumByIframe
+        ? t("script_total_runs", {
+            runNum: item.runNum,
+            runNumByIframe: item.runNumByIframe,
+          })!
+        : t("script_total_runs_single", { runNum: item.runNum })!
+      : t("script_disabled")!;
+
     return (
       <div
+        className="flex flex-row gap-x-2 items-center mr-[20px]"
         onClick={(e) => {
-          e.stopPropagation();
+          if (e.target instanceof Node && e.target.nodeName === "BUTTON") e.stopPropagation();
         }}
-        title={
-          item.enable
-            ? item.runNumByIframe
-              ? t("script_total_runs", {
-                  runNum: item.runNum,
-                  runNumByIframe: item.runNumByIframe,
-                })!
-              : t("script_total_runs_single", { runNum: item.runNum })!
-            : t("script_disabled")!
-        }
+        title={headerTitle}
       >
-        <Space>
-          <Switch size="small" checked={item.enable} onChange={(checked) => onEnableChange(item, checked)} />
-          <span
-            style={{
-              display: "block",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              color: item.runNum === 0 ? "rgb(var(--gray-5))" : "",
-              lineHeight: "20px",
-            }}
-          >
-            <ScriptIcons script={item} size={20} />
-            {i18nName(item)}
-          </span>
-        </Space>
+        <Switch
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+          size="small"
+          checked={item.enable}
+          onChange={(checked) => onEnableChange(item, checked)}
+        />
+        <span
+          style={{
+            display: "block",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: item.runNum === 0 ? "rgb(var(--gray-5))" : "",
+            lineHeight: "20px",
+          }}
+        >
+          <ScriptIcons script={item} size={20} />
+          {i18nName(item)}
+        </span>
       </div>
     );
   },
@@ -208,20 +202,27 @@ const ListMenuItem = React.memo(
       <Collapse
         activeKey={isActive ? item.uuid : undefined}
         onChange={(_, keys) => {
-          setIsActive(keys.includes(item.uuid));
+          const toActive = keys.includes(item.uuid);
+          setIsActive(toActive);
+          setIsExpand(toActive);
         }}
         bordered={false}
         expandIconPosition="right"
         key={item.uuid}
+        destroyOnHide={true}
+        lazyload={true}
+        triggerRegion="header"
       >
         <CollapseItem
           header={<CollapseHeader item={item} onEnableChange={onEnableChange} />}
           name={item.uuid}
-          contentStyle={{ padding: "0 0 0 40px" }}
+          className="popup-list-entry"
+          destroyOnHide={true}
         >
           <div className="flex flex-col">
             {isBackscript && (
               <Button
+                size="small"
                 className="text-left"
                 type="secondary"
                 icon={item.runStatus !== SCRIPT_RUN_STATUS_RUNNING ? <RiPlayFill /> : <RiStopFill />}
@@ -238,6 +239,7 @@ const ListMenuItem = React.memo(
               </Button>
             )}
             <Button
+              size="small"
               className="text-left"
               type="secondary"
               icon={<IconEdit />}
@@ -250,10 +252,12 @@ const ListMenuItem = React.memo(
             </Button>
             {url && isEffective !== null && (
               <Button
+                size="small"
                 className="text-left"
                 status="warning"
                 type="secondary"
                 icon={!isEffective ? <IconPlus /> : <IconMinus />}
+                style={{ textOverflow: "ellipsis", overflow: "hidden" }}
                 onClick={() => handleExcludeUrl(item.uuid, `*://${url.host}/*`, !isEffective)}
               >
                 {(!isEffective ? t("exclude_on") : t("exclude_off")).replace("$0", `${url.host}`)}
@@ -264,13 +268,13 @@ const ListMenuItem = React.memo(
               icon={<IconDelete />}
               onOk={() => handleDeleteScript(item.uuid)}
             >
-              <Button className="text-left" status="danger" type="secondary" icon={<IconDelete />}>
+              <Button size="small" className="text-left" status="danger" type="secondary" icon={<IconDelete />}>
                 {t("delete")}
               </Button>
             </Popconfirm>
           </div>
         </CollapseItem>
-        <div className="arco-collapse-item-content-box flex flex-col" style={{ padding: "0 0 0 40px" }}>
+        <div className="arco-collapse-item-content-box flex flex-col popup-list-entry">
           {/* 依数量与展开状态决定要显示的分组项（收合时只显示前 menuExpandNum 笔） */}
           {visibleMenus.map(({ uuid, groupKey, menus }) => {
             // 不同脚本之间可能出现相同的 groupKey；为避免 React key 冲突，需加上 uuid 做区分。

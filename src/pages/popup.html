@@ -13,10 +13,52 @@
         margin: 0;
         padding: 0;
         border: 0;
-        width: 320px;
-        min-height: 150px;
-        max-height: 500px;
+        min-width: 320px;
+        min-height: 300px; /* otherwise the 3 dots menu cannot be shown */
       }
+      .popup-layout {
+        width: 100vw;
+        border: 0;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        position: relative;
+        --transition-property: opacity !important;
+      }
+      .popup-list [class] {
+        transition-property: var(--transition-property);
+      }
+      .arco-switch-dot {
+        --transition-property: all;
+      }
+      .popup-list .popup-list-entry {
+        padding: 0;
+      }
+      .popup-list .popup-list-entry button.arco-btn-secondary {
+        padding-left: 36px;
+      }
+      .popup-list-entry .arco-collapse-item-content-box {
+        padding: 0;
+      }
+      .popup-list-entry > .arco-collapse-item-header{
+        padding: 8px;
+      }
+      .popup-list-entry .arco-switch {
+        min-width: 24px;
+      }
+      .popup-list .arco-collapse-item-active>.arco-collapse-item-header .arco-collapse-item-header-title{
+        font-weight: initial;
+      }
+      .popup-layout {
+        --font-size: 10pt;
+      }
+      .arco-empty, svg {
+        --font-size: undefined;
+      }
+      .popup-list * {
+        font-size: var(--font-size);
+      }
+      
     </style>
   </head>
 
