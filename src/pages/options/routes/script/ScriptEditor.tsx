@@ -889,12 +889,10 @@ function ScriptEditor() {
                 }}
                 onClick={() => {
                   setShowSearchInput(!showSearchInput);
-                  setTimeout(
-                    () =>
-                      showSearchInput &&
-                      (document.querySelector("#editor_search_scripts_input") as HTMLInputElement)?.focus(),
-                    1
-                  );
+                  const elem = document.querySelector("#editor_search_scripts_input") as HTMLInputElement | null;
+                  setTimeout(() => showSearchInput && elem?.querySelector("input")?.focus(), 1);
+                  const className = "hidden";
+                  elem?.classList?.toggle(className);
                 }}
               >
                 <div className="flex justify-between items-center">
@@ -906,18 +904,17 @@ function ScriptEditor() {
                   />
                 </div>
               </Button>
-              {showSearchInput && (
-                <div className="p-2">
+              {
+                <div className="p-2 hidden" id="editor_search_scripts_input">
                   <Input
                     placeholder={t("search_scripts")}
                     allowClear
                     value={searchKeyword}
                     onChange={(value) => setSearchKeyword(value)}
                     size="mini"
-                    id="editor_search_scripts_input"
                   />
                 </div>
-              )}
+              }
               {scriptList
                 .filter((script) => {
                   if (!searchKeyword) return true;
