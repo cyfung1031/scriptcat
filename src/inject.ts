@@ -11,11 +11,66 @@ import type { EmitEventRequest } from "@App/app/service/service_worker/types";
 
 /* global MessageFlag  */
 
+let eventTarget: EventTarget | null = null;
+
+const promiseEventTarget = new Promise<void>((resolve) => {
+  performance.addEventListener(`script-eventtarget-${MessageFlag}`, (ev: Event) => {
+    if (ev instanceof MouseEvent) {
+      eventTarget = ev.relatedTarget;
+      resolve();
+    }
+  });
+});
+
+const eventTargetOnReady = (callback: () => any) => {
+  if (eventTarget) {
+    callback();
+  } else {
+    promiseEventTarget.then(callback);
+  }
+};
+
+let emitMessage: ((retry: boolean) => void) | null = (retry: boolean) => {
+  const resContent = performance.dispatchEvent(
+    new CustomEvent("scriptcat-from-inject", {
+      detail: {
+        runtimeInjectFlag: MessageFlag,
+      },
+      cancelable: true,
+    })
+  );
+  if (retry && resContent === true) {
+    performance.addEventListener(
+      "script-wait-resent",
+      () => {
+        emitMessage?.(false);
+      },
+      { once: true }
+    );
+  } else {
+    emitMessage = null;
+  }
+};
+emitMessage(true);
+
+performance.dispatchEvent(
+  new CustomEvent("scriptcat-listen-inject", {
+    detail: {
+      runtimeInjectFlag: MessageFlag,
+    },
+  })
+);
+
 const msg: Message = new CustomEventMessage(MessageFlag, false);
 const scriptExecutor = new ScriptExecutor(msg);
 
-const listenContentMessage = (key: string, runtimeMessageFlag: string, callback: (data: any) => any) => {
-  performance.addEventListener(`scriptcat-content-${key}`, (ev) => {
+const listenContentMessage = (
+  eventTarget: EventTarget,
+  key: string,
+  runtimeMessageFlag: string,
+  callback: (data: any) => any
+) => {
+  eventTarget.addEventListener(`scriptcat-content-${key}`, (ev) => {
     if (ev instanceof CustomEvent) {
       const detail = ev.detail;
       if (detail && typeof detail === "object") {
@@ -90,21 +145,26 @@ const logger = new LoggerCore({
   labels: { env: "inject", href: window.location.href },
 });
 
-listenContentMessage("emitEvent", MessageFlag, (data: EmitEventRequest) => {
-  // 转发给脚本
-  scriptExecutor.emitEvent(data);
-});
-listenContentMessage("valueUpdate", MessageFlag, (data: ValueUpdateDataEncoded) => {
-  // 转发给脚本
-  scriptExecutor.valueUpdate(data);
-});
+type PageLoadData = { injectScriptList: TScriptInfo[]; envInfo: GMInfoEnv };
 
-listenContentMessage("pageLoad", MessageFlag, (data: { injectScriptList: TScriptInfo[]; envInfo: GMInfoEnv }) => {
-  logger.logger().debug("inject start");
-  // 监听事件
-  scriptExecutor.setEnvInfo(data.envInfo);
-  scriptExecutor.startScripts(data.injectScriptList);
-  setupExternalMessage();
+eventTargetOnReady(() => {
+  const evtTarget = eventTarget!;
+  listenContentMessage(evtTarget, "emitEvent", MessageFlag, (data: EmitEventRequest) => {
+    // 转发给脚本
+    scriptExecutor.emitEvent(data);
+  });
+  listenContentMessage(evtTarget, "valueUpdate", MessageFlag, (data: ValueUpdateDataEncoded) => {
+    // 转发给脚本
+    scriptExecutor.valueUpdate(data);
+  });
+
+  listenContentMessage(evtTarget, "pageLoad", MessageFlag, (data: PageLoadData) => {
+    logger.logger().debug("inject start");
+    // 监听事件
+    scriptExecutor.setEnvInfo(data.envInfo);
+    scriptExecutor.startScripts(data.injectScriptList);
+    setupExternalMessage();
+  });
 });
 
 // 检查early-start的脚本

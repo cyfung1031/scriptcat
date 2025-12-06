@@ -24,14 +24,110 @@ const loggerCore = new LoggerCore({
 
 loggerCore.logger().debug("content start");
 
+const eventTargetMap = new Map();
+
+let MessageFlag: string = "";
+
+let currentEventTarget: EventTarget | null = null;
+
+const getEventTargetByFlag = (flag: string) => {
+  let evtTarget = eventTargetMap.get(flag);
+  if (!evtTarget) {
+    eventTargetMap.set(flag, (evtTarget = new EventTarget()));
+  }
+  return evtTarget;
+};
+
+let currentFlag = "";
+
+const didSetupSet = new WeakSet();
+
+// 运行在content页面的脚本
+const contentScriptSet = new Set<string>();
+
+const setupFn = (evtTarget: EventTarget, flag: string) => {
+  const MessageFlag = flag;
+  // 发送给inject的消息接口
+  const msgInject = new CustomEventMessage(MessageFlag, true);
+
+  // 监听来自inject的消息
+  const server = new Server("content", [msgInject, scriptExecutorMsg]);
+
+  listenContentMessage(evtTarget, "emitEvent", MessageFlag, (data) => {
+    scriptExecutor.emitEvent(data);
+  });
+  listenContentMessage(evtTarget, "valueUpdate", MessageFlag, (data) => {
+    scriptExecutor.valueUpdate(data);
+  });
+  server.on("logger", (data: Logger) => {
+    LoggerCore.logger().log(data.level, data.message, data.label);
+  });
+  forwardMessage("serviceWorker", "script/isInstalled", server, msgInject);
+  forwardMessage("serviceWorker", "runtime/gmApi", server, msgInject, forwardGMApi);
+
+  listenContentMessage(
+    evtTarget,
+    "pageLoad",
+    MessageFlag,
+    (data: { contentScriptList: TScriptInfo[]; envInfo: GMInfoEnv }) => {
+      const { contentScriptList, envInfo } = data;
+      // 处理注入到content环境的脚本
+      for (const script of contentScriptList) {
+        contentScriptSet.add(script.uuid);
+      }
+      // 监听事件
+      scriptExecutor.setEnvInfo(envInfo);
+      // 启动脚本
+      scriptExecutor.startScripts(contentScriptList);
+    }
+  );
+};
+
+const promiseEventTarget = new Promise<void>((resolve) => {
+  performance.addEventListener("scriptcat-from-inject", (ev: Event) => {
+    ev.preventDefault();
+    if (ev instanceof CustomEvent) {
+      const flag = ev.detail.runtimeInjectFlag;
+      if (!flag) return;
+      currentFlag = flag;
+      const evtTarget = getEventTargetByFlag(flag);
+      currentEventTarget = evtTarget;
+      if (!didSetupSet.has(evtTarget)) {
+        MessageFlag = flag;
+        setupFn(evtTarget, flag);
+      }
+      const mEvt = new MouseEvent(`scriptcat-evttarget-${flag}`, {
+        relatedTarget: evtTarget,
+      });
+      performance.dispatchEvent(mEvt);
+      resolve();
+    }
+  });
+});
+
+const eventTargetOnReady = (callback: () => any) => {
+  if (currentEventTarget) {
+    callback();
+  } else {
+    promiseEventTarget.then(callback);
+  }
+};
+
+performance.dispatchEvent(new CustomEvent("script-wait-resent"));
+
 // 处理scriptExecutor
 const scriptExecutorFlag = randomMessageFlag();
 // 脚本执行器消息接口
 const scriptExecutorMsg = new CustomEventMessage(scriptExecutorFlag, true);
 const scriptExecutor = new ScriptExecutor(new CustomEventMessage(scriptExecutorFlag, false));
 
-const listenContentMessage = (key: string, runtimeMessageFlag: string, callback: (data: any) => any) => {
-  performance.addEventListener(`scriptcat-content-${key}`, (ev) => {
+const listenContentMessage = (
+  eventTarget: EventTarget,
+  key: string,
+  runtimeMessageFlag: string,
+  callback: (data: any) => any
+) => {
+  eventTarget.addEventListener(`scriptcat-content-${key}`, (ev) => {
     if (ev instanceof CustomEvent) {
       const detail = ev.detail;
       if (detail && typeof detail === "object") {
@@ -120,93 +216,46 @@ const forwardGMApi = (data: { api: string; params: any; uuid: string }) => {
   return false;
 };
 
-// 运行在content页面的脚本
-const contentScriptSet = new Set<string>();
-
-listenContentMessage("pageLoad", MessageFlag, (data: { contentScriptList: TScriptInfo[]; envInfo: GMInfoEnv }) => {
-  const { contentScriptList, envInfo } = data;
-  // 处理注入到content环境的脚本
-  for (const script of contentScriptList) {
-    contentScriptSet.add(script.uuid);
+chrome.storage.session.onChanged.addListener((changes: Record<string, chrome.storage.StorageChange>) => {
+  const keys = Object.keys(changes);
+  for (const key of keys) {
+    const messagePayload = changes[key]?.newValue;
+    if (!messagePayload) continue;
+    if (!currentFlag) continue;
+    const eventTarget = getEventTargetByFlag(currentFlag);
+    eventTarget.dispatchEvent(
+      new CustomEvent(`scriptcat-content-${key}`, {
+        detail: {
+          messageFlag: currentFlag,
+          messageData: messagePayload.data,
+        },
+      })
+    );
   }
-  // 监听事件
-  scriptExecutor.setEnvInfo(envInfo);
-  // 启动脚本
-  scriptExecutor.startScripts(contentScriptList);
 });
 
-const contentRuntimePageLoad = (messageFlag: string, submitPageLoad: (data: any) => any) => {
-  scriptExecutor.checkEarlyStartScript("content", messageFlag);
-  const client = new RuntimeClient(extMsgComm);
-  // 向service_worker请求脚本列表及环境信息
-  client.pageLoad().then((o) => {
-    if (!o.ok) return;
-    const { injectScriptList, contentScriptList, envInfo } = o;
-    submitPageLoad({ injectScriptList, contentScriptList, envInfo });
-  });
-};
-
-if (typeof chrome?.runtime?.onMessage?.addListener !== "function") {
-  // Firefox userScripts.RegisteredUserScript does not provide chrome.runtime.onMessage.addListener
-  // Firefox scripting.RegisteredContentScript does provide chrome.runtime.onMessage.addListener
-  // Firefox 的 userScripts.RegisteredUserScript 不提供 chrome.runtime.onMessage.addListener
-  // Firefox 的 scripting.RegisteredContentScript 提供 chrome.runtime.onMessage.addListener
-  console.error("chrome.runtime.onMessage.addListener is not a function");
-} else {
-  let MessageFlag = "";
-
-  chrome.storage.local.get(["storedMessageFlag"]).then((result) => {
-    MessageFlag = result?.storedMessageFlag || "";
-  });
-
-  chrome.storage.session.onChanged.addListener((changes: Record<string, chrome.storage.StorageChange>) => {
-    const keys = Object.keys(changes);
-    for (const key of keys) {
-      const messagePayload = changes[key]?.newValue;
-      if (!messagePayload) continue;
-      performance.dispatchEvent(
-        new CustomEvent(`scriptcat-content-${key}`, {
-          detail: {
-            messageFlag: MessageFlag,
-            messageData: messagePayload.data,
-          },
-        })
-      );
-    }
-  });
-
-  if (!MessageFlag) {
-    console.error("MessageFlag is unavailable.");
-  } else {
-    // 发送给inject的消息接口
-    const msgInject = new CustomEventMessage(MessageFlag, true);
-
-    // 监听来自inject的消息
-    const server = new Server("content", [msgInject, scriptExecutorMsg]);
-
-    listenContentMessage("emitEvent", MessageFlag, (data) => {
-      scriptExecutor.emitEvent(data);
-    });
-    listenContentMessage("valueUpdate", MessageFlag, (data) => {
-      scriptExecutor.valueUpdate(data);
-    });
-    server.on("logger", (data: Logger) => {
-      LoggerCore.logger().log(data.level, data.message, data.label);
-    });
-    forwardMessage("serviceWorker", "script/isInstalled", server, msgInject);
-    forwardMessage("serviceWorker", "runtime/gmApi", server, msgInject, forwardGMApi);
-
+const client = new RuntimeClient(extMsgComm);
+// 向service_worker请求脚本列表及环境信息
+client.pageLoad().then((o) => {
+  if (!o.ok) return;
+  const { injectScriptList, contentScriptList, envInfo } = o;
+  eventTargetOnReady(() => {
+    if (!MessageFlag || !currentEventTarget) return;
+    const data = { injectScriptList, contentScriptList, envInfo };
+    const key = "pageLoad";
     // 页面加载，注入脚本
-    contentRuntimePageLoad(MessageFlag, (data: any) => {
-      const key = "pageLoad";
-      performance.dispatchEvent(
-        new CustomEvent(`scriptcat-content-${key}`, {
-          detail: {
-            messageFlag: MessageFlag,
-            messageData: data,
-          },
-        })
-      );
-    });
-  }
-}
+    currentEventTarget.dispatchEvent(
+      new CustomEvent(`scriptcat-content-${key}`, {
+        detail: {
+          messageFlag: MessageFlag,
+          messageData: data,
+        },
+      })
+    );
+  });
+});
+
+eventTargetOnReady(() => {
+  if (!MessageFlag || !currentEventTarget) return;
+  scriptExecutor.checkEarlyStartScript("content", MessageFlag);
+});
