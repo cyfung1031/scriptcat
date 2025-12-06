@@ -273,7 +273,7 @@ describe("utils", () => {
       const script = createMockScript();
       const scriptCode = "console.log('injected');";
 
-      const result = compileInjectScript(script, scriptCode);
+      const result = compileInjectScript("TEST-FLAG", script, scriptCode);
 
       expect(result).toBe(`window['inject-test-flag'] = function(){console.log('injected');}`);
     });
@@ -282,7 +282,7 @@ describe("utils", () => {
       const script = createMockScript();
       const scriptCode = "console.log('with auto delete');";
 
-      const result = compileInjectScript(script, scriptCode, true);
+      const result = compileInjectScript("TEST-FLAG", script, scriptCode, true);
 
       expect(result).toContain(`try{delete window['inject-test-flag']}catch(e){}`);
       expect(result).toContain("console.log('with auto delete');");
@@ -295,7 +295,7 @@ describe("utils", () => {
       const script = createMockScript();
       const scriptCode = "console.log('without auto delete');";
 
-      const result = compileInjectScript(script, scriptCode);
+      const result = compileInjectScript("TEST-FLAG", script, scriptCode);
 
       expect(result).not.toContain("try{delete window");
       expect(result).toBe(`window['inject-test-flag'] = function(){console.log('without auto delete');}`);
@@ -309,7 +309,7 @@ describe("utils", () => {
         console.log(test());
       `;
 
-      const result = compileInjectScript(script, scriptCode, true);
+      const result = compileInjectScript("TEST-FLAG", script, scriptCode, true);
 
       expect(result).toContain("window['complex-flag']");
       expect(result).toContain("var x = 1;");
@@ -321,7 +321,7 @@ describe("utils", () => {
       const script = createMockScript({ flag: "flag-with-special-chars_123" });
       const scriptCode = "console.log('test');";
 
-      const result = compileInjectScript(script, scriptCode);
+      const result = compileInjectScript("TEST-FLAG", script, scriptCode);
 
       expect(result).toContain(`window['flag-with-special-chars_123']`);
     });

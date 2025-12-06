@@ -8,6 +8,7 @@ import type { Message } from "@Packages/message/types";
 import { ExternalWhitelist } from "@App/app/const";
 import { sendMessage } from "@Packages/message/client";
 import type { EmitEventRequest } from "@App/app/service/service_worker/types";
+import { DefinedFlags } from "./app/service/service_worker/runtime.consts";
 
 /* global MessageFlag  */
 
@@ -147,25 +148,79 @@ const logger = new LoggerCore({
 
 type PageLoadData = { injectScriptList: TScriptInfo[]; envInfo: GMInfoEnv };
 
-eventTargetOnReady(() => {
-  const evtTarget = eventTarget!;
-  listenContentMessage(evtTarget, "emitEvent", MessageFlag, (data: EmitEventRequest) => {
-    // 转发给脚本
-    scriptExecutor.emitEvent(data);
-  });
-  listenContentMessage(evtTarget, "valueUpdate", MessageFlag, (data: ValueUpdateDataEncoded) => {
-    // 转发给脚本
-    scriptExecutor.valueUpdate(data);
-  });
+const promiseOnPageLoad = new Promise<PageLoadData>((resolve) => {
+  eventTargetOnReady(() => {
+    const evtTarget = eventTarget!;
+    listenContentMessage(evtTarget, "emitEvent", MessageFlag, (data: EmitEventRequest) => {
+      // 转发给脚本
+      scriptExecutor.emitEvent(data);
+    });
+    listenContentMessage(evtTarget, "valueUpdate", MessageFlag, (data: ValueUpdateDataEncoded) => {
+      // 转发给脚本
+      scriptExecutor.valueUpdate(data);
+    });
 
-  listenContentMessage(evtTarget, "pageLoad", MessageFlag, (data: PageLoadData) => {
-    logger.logger().debug("inject start");
-    // 监听事件
-    scriptExecutor.setEnvInfo(data.envInfo);
-    scriptExecutor.startScripts(data.injectScriptList);
-    setupExternalMessage();
+    listenContentMessage(evtTarget, "pageLoad", MessageFlag, (data: PageLoadData) => {
+      logger.logger().debug("inject start");
+      resolve(data);
+    });
   });
 });
 
 // 检查early-start的脚本
 scriptExecutor.checkEarlyStartScript("inject", MessageFlag);
+
+const helperFn = (messageFlag: string, isContent: boolean) => {
+  const eventNamePrefix = `evt${messageFlag}${isContent ? DefinedFlags.contentFlag : DefinedFlags.injectFlag}`;
+  const scriptLoadCompleteEvtName = `${eventNamePrefix}${DefinedFlags.scriptLoadComplete}`;
+  const envLoadCompleteEvtName = `${eventNamePrefix}${DefinedFlags.envLoadComplete}`;
+  // 监听 脚本加载
+  // 适用于此「通知环境加载完成」代码执行后的脚本加载
+  performance.addEventListener(scriptLoadCompleteEvtName, (ev) => {
+    const detail = (ev as CustomEvent).detail;
+    const scriptFlag = detail?.scriptFlag;
+    if (typeof scriptFlag === "string") {
+      ev.preventDefault(); // dispatchEvent 会回传 false -> 分离环境也能得知环境加载代码已执行
+      if (!isContent) {
+        if (detail.scriptInfo) {
+          scriptExecutor.execEarlyScript(scriptFlag, detail.scriptInfo);
+        } else {
+          promiseOnPageLoad.then((data: PageLoadData) => {
+            // 监听事件
+            scriptExecutor.setEnvInfo(data.envInfo);
+            scriptExecutor.startScripts(data.injectScriptList);
+            setupExternalMessage();
+          });
+        }
+      } else {
+        eventTargetOnReady(() => {
+
+
+        if (detail.scriptInfo) {
+          scriptExecutor.execEarlyScript(scriptFlag, detail.scriptInfo);
+        } else {
+          promiseOnPageLoad.then((data: PageLoadData) => {
+            // 监听事件
+            scriptExecutor.setEnvInfo(data.envInfo);
+            scriptExecutor.startScripts(data.injectScriptList);
+            setupExternalMessage();
+          });
+        }
+
+          eventTarget!.dispatchEvent(new CustomEvent("pageLoad", {
+            detail: {
+              data: data,
+            },
+          }));
+        });
+      }
+    }
+  });
+  // 通知 环境 加载完成
+  // 适用于此「通知环境加载完成」代码执行前的脚本加载
+  const ev = new CustomEvent(envLoadCompleteEvtName);
+  performance.dispatchEvent(ev);
+};
+
+helperFn(MessageFlag, true);
+helperFn(MessageFlag, false);

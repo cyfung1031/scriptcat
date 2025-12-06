@@ -165,7 +165,7 @@ export function compileInjectionCode(messageFlag: string, scriptRes: ScriptRunRe
   if (preDocumentStartScript) {
     scriptInjectCode = compilePreInjectScript(messageFlag, parseScriptLoadInfo(scriptRes), scriptCode);
   } else {
-    scriptInjectCode = compileInjectScript(scriptRes, scriptCode);
+    scriptInjectCode = compileInjectScript(messageFlag, scriptRes, scriptCode);
   }
   return scriptInjectCode;
 }

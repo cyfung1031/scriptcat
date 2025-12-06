@@ -31,7 +31,7 @@ import { ExtensionContentMessageSend } from "@Packages/message/extension_message
 import { sendMessage } from "@Packages/message/client";
 import type { CompileScriptCodeResource } from "../content/utils";
 import {
-  compileInjectScriptByFlag,
+  compileInjectScript,
   compileScriptCodeByResource,
   isEarlyStartScript,
   isInjectIntoContent,
@@ -745,9 +745,11 @@ export class RuntimeService {
         require.push({ url: res.url, content: res.content });
       }
     }
+    const injectInto = result.world === "MAIN" ? "page" : "content";
 
-    return compileInjectScriptByFlag(
-      result.flag,
+    return compileInjectScript(
+      this.getMessageFlag(),
+      { ...result, metadata: { "inject-into": [injectInto] } },
       compileScriptCodeByResource({
         name: result.name,
         code: originalCode?.code || "",

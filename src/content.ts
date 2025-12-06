@@ -234,6 +234,14 @@ chrome.storage.session.onChanged.addListener((changes: Record<string, chrome.sto
   }
 });
 
+let envInfo_: GMInfoEnv | null = null;
+let loadedInfo_: {
+    injectScriptList: TScriptInfo[];
+    contentScriptList: TScriptInfo[];
+    envInfo: GMInfoEnv;
+} | null = null;
+
+
 const client = new RuntimeClient(extMsgComm);
 // 向service_worker请求脚本列表及环境信息
 client.pageLoad().then((o) => {
@@ -242,6 +250,7 @@ client.pageLoad().then((o) => {
   eventTargetOnReady(() => {
     if (!MessageFlag || !currentEventTarget) return;
     const data = { injectScriptList, contentScriptList, envInfo };
+    loadedInfo_ = data;
     const key = "pageLoad";
     // 页面加载，注入脚本
     currentEventTarget.dispatchEvent(
@@ -252,8 +261,12 @@ client.pageLoad().then((o) => {
         },
       })
     );
+    envInfo_ = envInfo;
+    resolve();
+
   });
 });
+
 
 eventTargetOnReady(() => {
   if (!MessageFlag || !currentEventTarget) return;

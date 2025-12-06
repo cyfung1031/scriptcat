@@ -81,20 +81,27 @@ export function compileScript(code: string): ScriptFunc {
  * @param [autoDeleteMountFunction=false] 是否自动删除挂载的函数
  */
 export function compileInjectScript(
-  script: ScriptRunResource,
+  messageFlag: string,
+  script: { flag: string; metadata: SCMetadata },
   scriptCode: string,
   autoDeleteMountFunction: boolean = false
 ): string {
-  return compileInjectScriptByFlag(script.flag, scriptCode, autoDeleteMountFunction);
-}
-
-export function compileInjectScriptByFlag(
-  flag: string,
-  scriptCode: string,
-  autoDeleteMountFunction: boolean = false
-): string {
+  const eventNamePrefix = `evt${messageFlag}${
+    isInjectIntoContent(script.metadata) ? DefinedFlags.contentFlag : DefinedFlags.injectFlag
+  }`;
+  const flag = `${script.flag}`;
   const autoDeleteMountCode = autoDeleteMountFunction ? `try{delete window['${flag}']}catch(e){}` : "";
-  return `window['${flag}'] = function(){${autoDeleteMountCode}${scriptCode}}`;
+  const evScriptLoad = `${eventNamePrefix}${DefinedFlags.scriptLoadComplete}`;
+  const evEnvLoad = `${eventNamePrefix}${DefinedFlags.envLoadComplete}`;
+  return `window['${flag}'] = function(){${autoDeleteMountCode}${scriptCode}};
+{
+  let o = { cancelable: true, detail: { scriptFlag: '${flag}' } },
+  f = () => performance.dispatchEvent(new CustomEvent('${evScriptLoad}', o)),
+  needWait = f();
+  if (needWait) performance.addEventListener('${evEnvLoad}', f, { once: true });
+}
+`;
+
 }
 
 /**
