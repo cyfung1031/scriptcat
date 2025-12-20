@@ -25,6 +25,7 @@ import { type TGMKeyValue } from "@App/app/repo/value";
 import type { ContextType } from "./gm_xhr";
 import { convObjectToURL, GM_xmlhttpRequest, toBlobURL, urlToDocumentInContentPage } from "./gm_xhr";
 import { stackAsyncTask } from "@App/pkg/utils/async_queue";
+import { uuidv4 } from "@App/pkg/utils/uuid";
 
 // 内部函数呼叫定义
 export interface IGM_Base {
@@ -666,6 +667,127 @@ export default class GMApi extends GM_Base {
     done: (cookie: GMTypes.Cookie[] | any, error: any | undefined) => void
   ) {
     _GM_cookie(this, action, details, done);
+  }
+
+  static _GM_atomic<T>(
+    a: IGM_Base,
+    details: GMTypes.GMAtomicDetails<T>,
+    done: (resp: any | undefined, error: any | undefined) => void
+  ) {
+    const atomicUUID = uuidv4();
+    a.sendMessage("GM_atomic", [atomicUUID, details])
+      .then((resp: any) => {
+        done && done(resp, undefined);
+      })
+      .catch((err) => {
+        done && done(undefined, err);
+      });
+  }
+
+  @GMContext.API({ follow: "GM.atomic" })
+  ["GM.atomic"](action: string, ...args: any[]) {
+    return this[`GM.atomic.${action}` as keyof GMApi](...args);
+  }
+
+  /**
+   * Sets the value to newValue only if the current value equals expected.
+   *
+   * Use when you want to update only if nothing changed since you last saw it.
+   *
+   * @param key string
+   * @param expect expected value
+   * @param update update to newValue
+   * @returns Returns true if it succeeded, false otherwise.
+   */
+  @GMContext.API({ follow: "GM.atomic" })
+  "GM.atomic.compareAndSet"<T>(key: string, expect: T, update: T) {
+    return new Promise((resolve, reject) => {
+      _GM_atomic(
+        this,
+        { action: "compareAndSet", key, expect: encodeRValue(expect), update: encodeRValue(update) },
+        (resp, error) => {
+          error ? reject(error) : resolve(resp);
+        }
+      );
+    });
+  }
+
+  /**
+   * Atomically sets to newValue.
+   *
+   * Use when you need the previous value while replacing it.
+   *
+   * @param key string
+   * @param newValue set to newValue
+   * @returns Returns the old value.
+   */
+  @GMContext.API({ follow: "GM.atomic" })
+  "GM.atomic.getAndSet"<T>(key: string, newValue: T) {
+    return new Promise((resolve, reject) => {
+      _GM_atomic(this, { action: "getAndSet", key, newValue: encodeRValue(newValue) }, (resp, error) => {
+        error ? reject(error) : resolve(resp);
+      });
+    });
+  }
+
+  /**
+   * Compute → set → return old.
+   *
+   * Use when you want to update based on current value but still need the old one.
+   *
+   * @param key string
+   * @param updateFunction Applies a function to the current value.
+   * @returns Returns the old value.
+   */
+  @GMContext.API({ follow: "GM.atomic" })
+  "GM.atomic.getAndUpdate"<T>(key: string, updateFunction: (value: T) => T) {
+    return new Promise((resolve, reject) => {
+      _GM_atomic(this, { action: "_update1", key }, async (resp, error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const [taskId, result] = resp;
+        const newValue = await updateFunction(result);
+        _GM_atomic(this, { action: "_update2", key, newValue: encodeRValue(newValue), taskId }, (resp, error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(result);
+        });
+      });
+    });
+  }
+
+  /**
+   * Compute → set → return new.
+   *
+   * Use when you care about the updated result.
+   *
+   * @param key string
+   * @param updateFunction Applies a function to the current value.
+   * @returns Returns the new value.
+   */
+  @GMContext.API({ follow: "GM.atomic" })
+  "GM.atomic.updateAndGet"<T>(key: string, updateFunction: (value: T) => T) {
+    return new Promise((resolve, reject) => {
+      _GM_atomic(this, { action: "_update1", key }, async (resp, error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const [taskId, result] = resp;
+        const newValue = await updateFunction(result);
+        _GM_atomic(this, { action: "_update2", key, newValue: encodeRValue(newValue), taskId }, (resp, error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(newValue);
+        });
+      });
+    });
   }
 
   // 已注册的「菜单唯一键」集合，用于去重与解除绑定。
@@ -1474,4 +1596,5 @@ export default class GMApi extends GM_Base {
 export const { createGMBase } = GM_Base;
 
 // 从 GMApi 对象中解构出内部函数，用于后续本地使用，不导出
-const { waitForFreshValueState, _GM_getValue, _GM_cookie, _GM_setValue, _GM_setValues, _GM_download } = GMApi;
+const { waitForFreshValueState, _GM_getValue, _GM_cookie, _GM_atomic, _GM_setValue, _GM_setValues, _GM_download } =
+  GMApi;

@@ -384,6 +384,15 @@ declare namespace GMTypes {
     sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
   }
 
+  interface GMAtomicDetails<T> {
+    action: string;
+    key: string;
+    expect?: RType<T>;
+    update?: RType<T>;
+    newValue?: RType<T>;
+    taskId?: string;
+  }
+
   // tabid是只有后台脚本监听才有的参数
   type ValueChangeListener = (
     name: string,

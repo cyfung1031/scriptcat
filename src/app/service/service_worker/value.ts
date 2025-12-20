@@ -5,7 +5,7 @@ import { type Value, ValueDAO } from "@App/app/repo/value";
 import type { IGetSender, Group } from "@Packages/message/server";
 import { type RuntimeService } from "./runtime";
 import { type PopupService } from "./popup";
-import { aNow, getStorageName } from "@App/pkg/utils/utils";
+import { aNow, type Deferred, deferred, getStorageName } from "@App/pkg/utils/utils";
 import type {
   ValueUpdateDataEncoded,
   ValueUpdateDataREntry,
@@ -21,26 +21,29 @@ import type { TKeyValuePair } from "@App/pkg/utils/message_value";
 import { decodeRValue, R_UNDEFINED, encodeRValue } from "@App/pkg/utils/message_value";
 import { isEarlyStartScript } from "../content/utils";
 
-type ValueUpdateTaskInfo = {
+type TUpdateParams = {
   uuid: string;
-  id: string;
-  keyValuePairs: TKeyValuePair[];
-  valueSender: ValueUpdateSender;
   isReplace: boolean;
-  ts: number;
-  status: SCRIPT_STATUS;
-  isEarlyStart: boolean;
+  keyValuePairs: TKeyValuePair[];
 };
+
+type TOtherUpdateParams = {
+  id: string;
+  ts: number;
+  valueSender: ValueUpdateSender;
+};
+
+type ValueUpdateTaskInfo = TUpdateParams &
+  TOtherUpdateParams & {
+    status: SCRIPT_STATUS;
+    isEarlyStart: boolean;
+  };
 const valueUpdateTasks = new Map<string, ValueUpdateTaskInfo[]>();
 
-export type TSetValuesParams = {
-  uuid: string;
-  id?: string;
-  keyValuePairs: TKeyValuePair[];
-  isReplace: boolean;
-  ts?: number;
-  valueSender?: ValueUpdateSender;
-};
+export type TSetValuesParams = TUpdateParams & Partial<TOtherUpdateParams>;
+
+const atomicLocks = new Map<string, { taskId: string; nextAtomicTaskId?: string; deferred?: Deferred<void> }>();
+const valueFns = new Map<string, any>();
 
 export class ValueService {
   logger: Logger;
@@ -161,6 +164,24 @@ export class ValueService {
     );
   }
 
+  setupAtomicLock(lockId: string, taskId: string, nextAtomicTaskId?: string) {
+    const pStart = deferred();
+    const pEndPromise = stackAsyncTask(lockId, () => {
+      const m = deferred<void>();
+      atomicLocks.set(lockId, { taskId: taskId, deferred: m, nextAtomicTaskId });
+      pStart.resolve();
+      return m.promise;
+    });
+    return {
+      start: pStart.promise,
+      end: pEndPromise,
+    };
+  }
+
+  setupValueFn(valueId: string, valueFn: (prevValue: any) => any) {
+    valueFns.set(valueId, valueFn);
+  }
+
   async setValuesByStorageName(storageName: string) {
     const taskListRef = valueUpdateTasks.get(storageName);
     if (!taskListRef?.length) return;
@@ -175,21 +196,15 @@ export class ValueService {
     let hasValueUpdated = false;
     for (const task of taskList) {
       const entries = [] as ValueUpdateDataREntry[];
-      const { uuid, keyValuePairs, isReplace, ts } = task;
+      const { uuid, isReplace, ts, keyValuePairs } = task;
       let oldValueRecord: { [key: string]: any } = {};
       const now = aNow(); // 保证严格递增
       let newData;
+      let changed = false;
+      let checkReplacement = false;
+      let dataModel: { [key: string]: any };
       if (!valueModel) {
-        const dataModel: { [key: string]: any } = {};
-        for (const [key, rTyped1] of keyValuePairs) {
-          const value = decodeRValue(rTyped1);
-          if (value !== undefined) {
-            dataModel[key] = value;
-            entries.push([key, rTyped1, R_UNDEFINED]);
-          }
-        }
-        // 即使是空 dataModel 也进行更新
-        // 由于没entries, valueUpdated 是 false, 但 valueDAO 会有一个空的 valueModel 记录 updatetime
+        dataModel = {};
         valueModel = {
           uuid: uuid,
           storageName: storageName,
@@ -197,41 +212,68 @@ export class ValueService {
           createtime: ts ? Math.min(ts, now) : now,
           updatetime: ts ? Math.min(ts, now) : now,
         };
-        newData = dataModel;
+        // 即使是空 dataModel 也进行更新
+        // 由于没entries, valueUpdated 是 false, 但 valueDAO 会有一个空的 valueModel 记录 updatetime
+        changed = true;
       } else {
-        let changed = false;
         oldValueRecord = valueModel.data;
-        const dataModel = { ...oldValueRecord }; // 每次储存使用新参考
-        const containedKeys = new Set<string>();
-        for (const [key, rTyped1] of keyValuePairs) {
-          containedKeys.add(key);
-          const value = decodeRValue(rTyped1);
+        dataModel = { ...oldValueRecord };
+        checkReplacement = isReplace;
+      }
+      const containedKeys = checkReplacement ? new Set<string>() : undefined;
+      for (const pair of keyValuePairs) {
+        const key = pair[0];
+        let rTyped1 = pair[1];
+        containedKeys?.add(key);
+        const atomicLockId = `${storageName}::${key}`;
+        const currentAtomicLock = atomicLocks.get(atomicLockId);
+        if (currentAtomicLock && currentAtomicLock.taskId !== task.id) {
+          // atomic 值更新期間忽略所有寫入該 key 的處理
+        } else {
           const oldValue = dataModel[key];
-          if (oldValue === value) continue;
-          changed = true;
-          if (value === undefined) {
-            delete dataModel[key];
-          } else {
-            dataModel[key] = value;
+          let value = decodeRValue(rTyped1);
+          if (typeof value === "string" && valueFns.has(value)) {
+            let v = valueFns.get(value);
+            valueFns.delete(value);
+            if (typeof v === "function") v = v(oldValue);
+            value = v;
+            rTyped1 = encodeRValue(value);
           }
-          const rTyped2 = encodeRValue(oldValue);
-          entries.push([key, rTyped1, rTyped2]);
-        }
-        if (isReplace) {
-          // 处理oldValue有但是没有在data.values中的情况
-          for (const key of Object.keys(oldValueRecord)) {
-            if (!containedKeys.has(key)) {
-              changed = true;
-              const oldValue = oldValueRecord[key];
-              delete dataModel[key]; // 这里使用delete是因为保存不需要这个字段了
-              const rTyped2 = encodeRValue(oldValue);
-              entries.push([key, R_UNDEFINED, rTyped2]);
+          if (value !== oldValue) {
+            changed = true;
+            if (value === undefined) {
+              delete dataModel[key];
+            } else {
+              dataModel[key] = value;
+            }
+            const rTyped2 = encodeRValue(oldValue);
+            entries.push([key, rTyped1, rTyped2]);
+          }
+          if (currentAtomicLock) {
+            if (currentAtomicLock.nextAtomicTaskId) {
+              currentAtomicLock.taskId = currentAtomicLock.nextAtomicTaskId;
+              currentAtomicLock.nextAtomicTaskId = undefined;
+            } else {
+              atomicLocks.delete(atomicLockId);
+              currentAtomicLock.deferred?.resolve();
             }
           }
         }
-        if (changed) {
-          newData = dataModel;
+      }
+      if (checkReplacement) {
+        // 处理oldValue有但是没有在data.values中的情况
+        for (const key of Object.keys(oldValueRecord)) {
+          if (!containedKeys!.has(key)) {
+            changed = true;
+            const oldValue = oldValueRecord[key];
+            delete dataModel[key]; // 这里使用delete是因为保存不需要这个字段了
+            const rTyped2 = encodeRValue(oldValue);
+            entries.push([key, R_UNDEFINED, rTyped2]);
+          }
         }
+      }
+      if (changed) {
+        newData = dataModel;
       }
       if (newData) {
         valueModel.updatetime = now;
@@ -315,13 +357,13 @@ export class ValueService {
         ts,
         status: script.status,
         isEarlyStart: isEarlyStartScript(script.metadata),
-      });
+      } as ValueUpdateTaskInfo);
     });
     // valueDAO 次序依 storageName
     await stackAsyncTask<void>(cacheKey!, () => this.setValuesByStorageName(storageName!));
   }
 
-  setScriptValues(params: Pick<TSetValuesParams, "uuid" | "keyValuePairs" | "isReplace" | "ts">, _sender: IGetSender) {
+  setScriptValues(params: TSetValuesParams, _sender: IGetSender) {
     return this.setValues(params);
   }
 

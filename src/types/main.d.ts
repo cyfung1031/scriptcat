@@ -6,6 +6,8 @@ declare module "@App/app/types.d.ts";
 
 type Override<T, U> = Omit<T, keyof U> & U;
 type ValueOf<T> = T[keyof T];
+type Without<T, U> = { [P in Exclude<keyof T, keyof U>]?: never };
+type XOR<T, U> = (T & Without<U, T>) | (U & Without<T, U>);
 
 declare const sandbox: Window;
 

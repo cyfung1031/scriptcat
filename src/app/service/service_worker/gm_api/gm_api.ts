@@ -10,7 +10,8 @@ import type { ConfirmParam } from "../permission_verify";
 import PermissionVerify, { PermissionVerifyApiGet } from "../permission_verify";
 import { cacheInstance } from "@App/app/cache";
 import { type RuntimeService } from "../runtime";
-import { getIcon, isFirefox, getCurrentTab, openInCurrentTab, cleanFileName, makeBlobURL } from "@App/pkg/utils/utils";
+import { getIcon, isFirefox, getCurrentTab, openInCurrentTab, deferred } from "@App/pkg/utils/utils";
+import { cleanFileName, makeBlobURL, getStorageName } from "@App/pkg/utils/utils";
 import { type SystemConfig } from "@App/pkg/config/config";
 import i18next, { i18nName } from "@App/locales/locales";
 import FileSystemFactory from "@Packages/filesystem/factory";
@@ -28,7 +29,7 @@ import type {
 import type { TScriptMenuRegister, TScriptMenuUnregister } from "../../queue";
 import { BrowserNoSupport, notificationsUpdate } from "../utils";
 import i18n from "@App/locales/locales";
-import { encodeRValue, type TKeyValuePair } from "@App/pkg/utils/message_value";
+import { decodeRValue, encodeRValue, RType, type TKeyValuePair } from "@App/pkg/utils/message_value";
 import { createObjectURL } from "../../offscreen/client";
 import type { GMXhrStrategy } from "./gm_xhr";
 import {
@@ -44,6 +45,7 @@ import { headerModifierMap, headersReceivedMap } from "./gm_xhr";
 import { BgGMXhr } from "@App/pkg/utils/xhr/bg_gm_xhr";
 import { mightPrepareSetClipboard, setClipboard } from "../clipboard";
 import { nativePageWindowOpen } from "../../offscreen/gm_api";
+import { uuidv4 } from "@App/pkg/utils/uuid";
 
 let generatedUniqueMarkerIDs = "";
 let generatedUniqueMarkerIDWhen = "";
@@ -393,6 +395,120 @@ export default class GMApi {
       }
       default: {
         throw new Error("action can only be: get, set, delete, store");
+      }
+    }
+  }
+
+  @PermissionVerify.API()
+  async GM_atomic<T>(request: GMApiRequest<[string, GMTypes.GMAtomicDetails<T>]>, sender: IGetSender) {
+    const requestParams = request.params;
+    if (requestParams.length !== 2) {
+      throw new Error("there must be two parameter");
+    }
+    const valueSender = {
+      runFlag: request.runFlag,
+      tabId: sender.getSender()?.tab?.id || -1,
+    };
+    const scriptUUID = request.script.uuid;
+    // 查询出脚本
+    const script = await this.scriptDAO.get(scriptUUID);
+    if (!script) {
+      throw new Error("script not found");
+    }
+    const [_, details] = requestParams;
+    const key = `${details.key || ""}`;
+    const action = `${details.action || ""}`;
+    const expect = details.expect ? decodeRValue(details.expect) : undefined;
+    const update = details.update ? decodeRValue(details.update) : undefined;
+    const newValue = details.newValue ? decodeRValue(details.newValue) : undefined;
+    const storageName = getStorageName(script);
+    if (!key || !action || !storageName) throw new Error("invalid parameter");
+    const atomicLockId = `${storageName}::${key}`;
+    const taskId = `atomic::${Date.now()}::${uuidv4()}`;
+
+    switch (details.action) {
+      case "compareAndSet": {
+        let result: boolean | undefined = undefined;
+        const { start, end } = this.value.setupAtomicLock(atomicLockId, taskId);
+        const valueId = `${taskId}_${Math.random()}`;
+        const keyValuePairs: TKeyValuePair[] = [[key, [RType.STANDARD, valueId]]];
+        this.value.setupValueFn(valueId, (prevValue) => {
+          if (prevValue === expect) {
+            result = true;
+            return update; // 更新
+          }
+          result = false;
+          return prevValue; // 使用原值，不更新
+        });
+
+        await start; // 等待其他 atomic 處理
+        await this.value.setValues({
+          uuid: request.script.uuid,
+          id: taskId,
+          keyValuePairs,
+          isReplace: false,
+          valueSender,
+        });
+        await end;
+        // 處理完成
+        return result; // 返回 true / false
+      }
+      case "getAndSet": {
+        let result: boolean | undefined = undefined;
+        const { start, end } = this.value.setupAtomicLock(atomicLockId, taskId);
+        const valueId = `${taskId}_${Math.random()}`;
+        const keyValuePairs: TKeyValuePair[] = [[key, [RType.STANDARD, valueId]]];
+        this.value.setupValueFn(valueId, (prevValue) => {
+          result = prevValue; // 保存最新值
+          return newValue; // 更新
+        });
+        await start; // 等待其他 atomic 處理
+        await this.value.setValues({
+          uuid: request.script.uuid,
+          id: taskId,
+          keyValuePairs,
+          isReplace: false,
+          valueSender,
+        });
+        await end;
+        // 處理完成
+        return result; // 返回 最新值
+      }
+      case "_update1": {
+        let result: boolean | undefined = undefined;
+        const taskId1 = `${taskId}-1`;
+        const taskId2 = `${taskId}-2`;
+        const d = deferred<[string, any]>();
+        const { start } = this.value.setupAtomicLock(atomicLockId, taskId1, taskId2);
+        const valueId = `${taskId}_${Math.random()}`;
+        const keyValuePairs: TKeyValuePair[] = [[key, [RType.STANDARD, valueId]]];
+        this.value.setupValueFn(valueId, (prevValue) => {
+          result = prevValue; // 保存最新值
+          d.resolve([taskId2, result]); // 返回至 content gm_api, 等待 updateFunction 執行
+          return prevValue; // 監聽 _update2 的 setValues；使用原值，不更新
+        });
+        await start; // 等待其他 atomic 處理
+        await this.value.setValues({
+          uuid: request.script.uuid,
+          id: taskId1,
+          keyValuePairs,
+          isReplace: false,
+          valueSender,
+        });
+        return d.promise; // 處理完成，返回 [taskId2, result]
+      }
+      case "_update2": {
+        if (details.taskId) {
+          const keyValuePairs: TKeyValuePair[] = [[key, encodeRValue(newValue)]];
+          await this.value.setValues({
+            uuid: request.script.uuid,
+            id: details.taskId, // 關聯 _update1
+            keyValuePairs,
+            isReplace: false,
+            valueSender,
+          });
+          return true; // 處理完成，返回 true
+        }
       }
     }
   }
