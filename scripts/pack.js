@@ -135,10 +135,8 @@ firefox.file("manifest.json", JSON.stringify(firefoxManifest));
 
 await Promise.all([
   addDir(chrome, "./dist/ext", "", ["manifest.json"]),
-  addDir(firefox, "./dist/ext", "", ["manifest.json", "ts.worker.js"]),
+  addDir(firefox, "./dist/ext", "", ["manifest.json"]),
 ]);
-// 把ts.worker.js名字更改为ts.worker.js.bin
-firefox.file("src/ts.worker.js.bin", await fs.readFile("./dist/ext/src/ts.worker.js", { encoding: "utf8" }));
 
 // 导出zip包
 chrome
