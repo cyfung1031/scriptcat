@@ -129,7 +129,7 @@ await Promise.all([
   addDir(firefox, "./dist/ext", "", ["manifest.json", "ts.worker.js"]),
 ]);
 // 添加ts.worker.js名字为gz
-firefox.file("src/ts.worker.js.gz", await fs.readFile("./dist/ext/src/ts.worker.js", { encoding: "utf8" }));
+firefox.file("src/ts.worker.js", await fs.readFile("./dist/ext/src/ts.worker.js", { encoding: "utf8" }));
 
 // 导出zip包
 chrome
