@@ -5,6 +5,373 @@ import { readFileSync } from "fs";
 import { NormalModule } from "@rspack/core";
 import { v4 as uuidv4 } from "uuid";
 
+import type { Compiler, Compilation } from "@rspack/core";
+import pako from "pako";
+
+import * as acorn from "acorn";
+import MagicString from "magic-string";
+
+/*
+function compileDecodeSource(templateCode: string, base64Data: string) {
+  return `
+(async () => {
+  const b64 = "${base64Data}";
+  const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const ds = new DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  writer.write(buf);
+  writer.close();
+  const zzstrs = JSON.parse(await new Response(ds.readable).text());
+  ((zzstrs) => {
+    ${templateCode}
+  })(zzstrs);
+})();`.trim();
+}
+*/
+
+function compileDecodeSource(templateCode: string, base64Data: string) {
+  return `
+(() => {
+  // 1. Decode Base64 to Uint8Array
+  const b64 = "${base64Data}";
+
+
+  
+  
+
+const inflate = (b64) => {
+  // 1. Setup Input (Binary String -> Uint8Array)
+  const binStr = atob(b64);
+  const input = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) input[i] = binStr.charCodeAt(i);
+
+  // 2. Setup Output (Dynamic Uint8Array)
+  // Start with a reasonable size (e.g., 4x input or 32KB) to minimize resizing
+  let out = new Uint8Array(Math.max(binStr.length * 4, 32768));
+  let outIdx = 0;
+
+  // Helper: Resize output buffer if needed
+  const ensure = (extra) => {
+    if (outIdx + extra > out.length) {
+      const newOut = new Uint8Array(out.length * 2 + extra);
+      newOut.set(out);
+      out = newOut;
+    }
+  };
+
+  // 3. Bit Reader
+  let bitBuf = 0, bitLen = 0, inpIdx = 0;
+  const readBits = (n) => {
+    while (bitLen < n) {
+      if (inpIdx >= input.length) break;
+      // OR-ing with existing buffer. 
+      // Important: input byte is unsigned, but shift result is 32-bit signed.
+      bitBuf |= input[inpIdx++] << bitLen; 
+      bitLen += 8;
+    }
+    const res = bitBuf & ((1 << n) - 1);
+    // CRITICAL FIX: Use >>> (zero-fill right shift) to prevent sign extension
+    // if bitBuf becomes negative (which happens if bit 31 is set).
+    bitBuf >>>= n; 
+    bitLen -= n;
+    return res;
+  };
+
+  // 4. Tables
+  const ord = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  const lensOf0 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+  const ex0 = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+  const distsOf1 = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+  const ex1 = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+
+  // 5. Optimized Tree Builder
+  // Creates a lookup table that allows O(1) decoding per bit length
+  const buildTree = (lens) => {
+    // 1. Count frequencies of each bit length
+    const counts = new Int32Array(16);
+    for (let i = 0; i < lens.length; i++) {
+      if (lens[i] > 0) counts[lens[i]]++; // FIX: Ignore length 0 (unused)
+    }
+
+    // 2. Compute starting code for each length (Canonical Huffman)
+    const firstCode = new Int32Array(16);
+    const offsets = new Int32Array(16);
+    let code = 0;
+    let currentOffset = 0;
+
+    for (let i = 1; i <= 15; i++) {
+      code = (code + counts[i - 1]) << 1;
+      firstCode[i] = code;
+      offsets[i] = currentOffset;
+      currentOffset += counts[i];
+    }
+
+    // 3. Sort symbols by length to allow direct lookup
+    const sortedSyms = new Uint16Array(lens.length);
+    const nextOffset = new Int32Array(offsets); // Copy of offsets
+    for (let i = 0; i < lens.length; i++) {
+      const l = lens[i];
+      if (l > 0) {
+        sortedSyms[nextOffset[l]++] = i; 
+      }
+    }
+
+    return { counts, firstCode, offsets, sortedSyms };
+  };
+
+  const decodeSymbol = (tree) => {
+    let code = 0;
+    // Iterate bits 1 to 15 (max Huffman length)
+    for (let len = 1; len <= 15; len++) {
+      code = (code << 1) | readBits(1);
+      const count = tree.counts[len];
+      if (count > 0) { // Only check if codes exist for this length
+        const first = tree.firstCode[len];
+        const diff = code - first;
+        // If code is in range for this length
+        if (diff < count && diff >= 0) {
+           return tree.sortedSyms[tree.offsets[len] + diff];
+        }
+      }
+    }
+    return -1; // Should not happen on valid stream
+  };
+
+  // 6. Main Decompression Loop
+  let isFinal = 0;
+  while (!isFinal) {
+    isFinal = readBits(1);
+    const type = readBits(2);
+
+    if (type === 0) { // Uncompressed
+      bitBuf = bitLen = 0; // Align to byte boundary
+      const len = input[inpIdx++] | (input[inpIdx++] << 8);
+      inpIdx += 2; // Skip nlen
+      ensure(len);
+      // Fast block copy
+      out.set(input.subarray(inpIdx, inpIdx + len), outIdx);
+      outIdx += len;
+      inpIdx += len;
+
+    } else { // Compressed
+      let lTree, dTree;
+      if (type === 1) { // Fixed
+        const ls = new Uint8Array(288);
+        ls.fill(8, 0, 144); ls.fill(9, 144, 256); ls.fill(7, 256, 280); ls.fill(8, 280, 288);
+        const ds = new Uint8Array(32).fill(5);
+        lTree = buildTree(ls);
+        dTree = buildTree(ds);
+      } else { // Dynamic
+        const hlit = readBits(5) + 257;
+        const hdist = readBits(5) + 1;
+        const hclen = readBits(4) + 4;
+        
+        const clens = new Uint8Array(19);
+        for (let i = 0; i < hclen; i++) clens[ord[i]] = readBits(3);
+        const clTree = buildTree(clens);
+        
+        const allLens = new Uint8Array(hlit + hdist);
+        let i = 0;
+        while (i < hlit + hdist) {
+          const s = decodeSymbol(clTree);
+          if (s < 16) allLens[i++] = s;
+          else {
+            let r = 0, val = 0;
+            if (s === 16) { r = 3 + readBits(2); val = allLens[i - 1]; }
+            else if (s === 17) { r = 3 + readBits(3); val = 0; }
+            else { r = 11 + readBits(7); val = 0; }
+            while (r--) allLens[i++] = val;
+          }
+        }
+        lTree = buildTree(allLens.subarray(0, hlit));
+        dTree = buildTree(allLens.subarray(hlit));
+      }
+
+      // Decode Huffman Block
+      while (true) {
+        const s = decodeSymbol(lTree);
+        if (s < 256) { // Literal
+          ensure(1);
+          out[outIdx++] = s;
+        } else if (s === 256) { // End of Block
+          break;
+        } else { // Match
+          const si = s - 257;
+          let length = lensOf0[si] + readBits(ex0[si]);
+          const di = decodeSymbol(dTree);
+          let dist = distsOf1[di] + readBits(ex1[di]);
+          
+          let pos = outIdx - dist;
+          ensure(length);
+          // Tight loop for reference copy (handling overlap)
+          while (length--) {
+            out[outIdx++] = out[pos++];
+          }
+        }
+      }
+    }
+  }
+
+  return new TextDecoder().decode(out.subarray(0, outIdx));
+};
+
+
+const decodedText = inflate(b64);
+
+
+
+
+
+  const zzstrs = JSON.parse(decodedText);
+  ((zzstrs) => {
+    ${templateCode}
+  })(zzstrs);
+})();`.trim();
+}
+
+// ──────────────────────────────────────────────────────────────
+// Collect all TemplateLiteral nodes recursively (no extra walk lib)
+function collectTemplateLiterals(node: any, templates: any[] = []): any[] {
+  if (Array.isArray(node)) {
+    node.forEach((child) => collectTemplateLiterals(child, templates));
+    return templates;
+  }
+
+  if (node && typeof node === "object" && node !== null) {
+    if (node.type === "TemplateLiteral") {
+      templates.push(node);
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key !== "parent" && key !== "leadingComments") {
+        collectTemplateLiterals(node[key], templates);
+      }
+    }
+  }
+
+  return templates;
+}
+
+// ──────────────────────────────────────────────────────────────
+class ZipExecutionPlugin {
+  apply(compiler: Compiler) {
+    compiler.hooks.thisCompilation.tap("ZipExecutionPlugin", (compilation: Compilation) => {
+      compilation.hooks.processAssets.tapPromise(
+        {
+          name: "ZipExecutionPlugin",
+          stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_SUMMARIZE,
+        },
+        async (assets) => {
+          for (const filename of Object.keys(assets)) {
+            if (!filename.includes("ts.worker.js")) continue;
+
+            let source = assets[filename].source().toString();
+            source = source.replace(/\r\n|\r|\n/g, "\n");
+            source = source.replace(/\.(join|split)\(`([\t\x20]*?)\n\n([\t\x20]*?)`\)/g, ".$1('$2\\n\\n$3')");
+            source = source.replace(/\.(join|split)\(`([\t\x20]*?)\n([\t\x20]*?)`\)/g, ".$1('$2\\n$3')");
+            source = source.replace(/(\w)\+=`([\t\x20]*?)\n\n([\t\x20]*?)`/g, "$1+='$2\\n\\n$3'");
+            source = source.replace(/(\w)\+=`([\t\x20]*?)\n([\t\x20]*?)`/g, "$1+='$2\\n$3'");
+
+            source = source.replace(/(\w)\+=`([\t\x20]*?)\n[\s\w:\-+]+\n([\t\x20]*?)`/g, (x) => {
+              let s = x.split("`");
+              s = [s[0], s[1].replace(/\n/g, "\\n"), s[2]];
+              return s.join("'");
+            });
+
+            source = source.replace(/(\w)\+=`([\t\x20]*?)\n[\s\w:\-+${}()[\].'"]+\n([\t\x20]*?)`/g, (x) => {
+              let s = x.split("`");
+              if (
+                s[1].split("(").length === s[1].split(")").length &&
+                s[1].split("{").length === s[1].split("}").length &&
+                s[1].split("[").length === s[1].split("]").length &&
+                s[1].split("'").length === s[1].split("'").length &&
+                s[1].split('"').length === s[1].split('"').length
+              ) {
+                s = [s[0], s[1].replace(/\n/g, "\\n"), s[2]];
+                return s.join("`");
+              } else {
+                return x;
+              }
+            });
+
+            source = source.replace(/\.writeSync\(\w+,`([\t\x20]*?)[\t\x20\n\]]+([\t\x20]*?)`\)/g, (x) => {
+              let s = x.split("`");
+              s = [s[0], s[1].replace(/\n/g, "\\n"), s[2]];
+              return s.join("'");
+            });
+
+            source = source.replace(/\.replace\([/\\\w]+,`([\t\x20]*?)[\t\x20*\n\]]+([\t\x20]*?)`\)/g, (x) => {
+              let s = x.split("`");
+              s = [s[0], s[1].replace(/\n/g, "\\n"), s[2]];
+              return s.join("'");
+            });
+
+            let ast;
+            try {
+              ast = acorn.parse(source, {
+                ecmaVersion: "latest",
+                sourceType: "module",
+                ranges: true,
+              });
+            } catch (err) {
+              console.warn(`[ZipExec] Parse failed ${filename}:`, (err as Error).message);
+              continue;
+            }
+
+            const templates = collectTemplateLiterals(ast);
+            if (templates.length === 0) continue;
+
+            const ms = new MagicString(source);
+            const extractedRaw: string[] = [];
+
+            // Bottom-up: process deepest templates first
+            const sortedTemplates = [...templates].sort((a, b) => b.start - a.start);
+
+            for (const tpl of sortedTemplates) {
+              // Critical: skip tagged templates (semantics would break)
+              if (tpl.parent?.type === "TaggedTemplateExpression") continue;
+
+              // Right-to-left inside this template (safe for length changes)
+              const sortedQuasis = [...tpl.quasis].sort((a, b) => b.start - a.start);
+
+              for (const quasi of sortedQuasis) {
+                const raw = quasi.value.raw;
+                if (!raw || raw.length <= 15) continue; // skip very short / empty
+
+                const idx = extractedRaw.length;
+                extractedRaw.push(raw);
+
+                // Replace static content only → becomes ${zzstrs[idx]}
+                ms.overwrite(quasi.start, quasi.end, `\${zzstrs[${idx}]}`);
+              }
+            }
+
+            if (extractedRaw.length === 0) continue;
+
+            // Compress the array of raw quasi strings
+            let compressedBase64: string;
+            try {
+              const json = JSON.stringify(extractedRaw);
+              const bytes = Buffer.from(json, "utf8");
+              const deflated = pako.deflateRaw(bytes, { level: 1 }); // 6 = good ratio/speed
+              compressedBase64 = Buffer.from(deflated).toString("base64");
+            } catch (err) {
+              console.warn(`[ZipExec] Compression failed ${filename}:`, (err as Error).message);
+              continue;
+            }
+
+            const newSource = compileDecodeSource(ms.toString(), compressedBase64);
+
+            compilation.updateAsset(filename, new compiler.webpack.sources.RawSource(newSource));
+
+            console.log(`[ZipExecutionPlugin] Processed ${filename}: ` + `${extractedRaw.length} strings extracted`);
+          }
+        }
+      );
+    });
+  }
+}
+
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 
 const version = pkg.version;
@@ -224,6 +591,7 @@ export default defineConfig({
       minify: true,
       chunks: ["sandbox"],
     }),
+    new ZipExecutionPlugin(),
   ].filter(Boolean),
   experiments: {
     css: true,
