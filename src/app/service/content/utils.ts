@@ -4,6 +4,7 @@ import type { ScriptLoadInfo } from "../service_worker/types";
 import { DefinedFlags } from "../service_worker/runtime.consts";
 import { sourceMapTo } from "@App/pkg/utils/utils";
 import { ScriptEnvTag } from "@Packages/message/consts";
+import { compactCodeSpacing } from "@App/pkg/utils/code-compact";
 
 export type CompileScriptCodeResource = {
   name: string;
@@ -93,21 +94,27 @@ export function compileScriptCodeByResource(resource: CompileScriptCodeResource)
   // 使用sandboxContext时，arguments[0]为undefined, this.$则为一次性Proxy变量，用于全域拦截context
   // 非沙盒环境时，先读取 arguments[0]，因此不会读取页面环境的 this.$
   // 在UserScripts API中，由于执行不是在物件导向里呼叫，使用arrow function的话会把this改变。须使用 .call(this) [ 或 .bind(this)() ]
-  const codeBody = `try {
-  with(arguments[0]||this.$){
+
+  const codeBefore = `
+try {\b
+  with(arguments[0]||this.$){\b
 ${preCode}
-    return (async function(){
-${code}
-    }).call(this);
-  }
-} catch (e) {
-  if (e.message && e.stack) {
-      console.error("ERROR: Execution of script '" + arguments[1] + "' failed! " + e.message);
-      console.log(e.stack);
-  } else {
-      console.error(e);
-  }
-}`;
+    return (async function(){\b
+`.trim();
+  const codeAfter = `
+    }).call(this);\b
+  }\b
+} catch (e) {\b
+  if (e.message && e.stack) {\b
+      console.error("ERROR: Execution of script '" + arguments[1] + "' failed! " + e.message);\b
+      console.log(e.stack);\b
+  } else {\b
+      console.error(e);\b
+  }\b
+}\b
+`.trim();
+
+  const codeBody = `${compactCodeSpacing(codeBefore, true)}\n${code.replace(/^[\r\n]+|\s*[\r\n]+$/g, "")}\n${compactCodeSpacing(codeAfter, true)}`;
   return `${codeBody}${sourceMapTo(`${resource.name}.user.js`)}\n`;
 }
 
