@@ -295,21 +295,14 @@ const MainLayout: React.FC<{
       }}
       locale={arcoLocale(i18n.language)}
       componentConfig={{
-        Select: {
-          getPopupContainer: (node) => {
-            return node;
-          },
-        },
         Popconfirm: {
           getPopupContainer: (node) => {
             return node.parentNode as Element;
           },
         },
-        Tooltip: {
-          getPopupContainer: (node) => {
-            return node.parentNode as Element;
-          },
-        },
+      }}
+      getPopupContainer={(node) => {
+        return node;
       }}
     >
       {contextHolder}
