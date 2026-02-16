@@ -300,6 +300,11 @@ const MainLayout: React.FC<{
             return node;
           },
         },
+        Popconfirm: {
+          getPopupContainer: (node) => {
+            return node.parentNode as Element;
+          },
+        },
       }}
     >
       {contextHolder}
