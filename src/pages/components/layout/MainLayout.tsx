@@ -294,6 +294,13 @@ const MainLayout: React.FC<{
         return <Empty description={t("no_data")} />;
       }}
       locale={arcoLocale(i18n.language)}
+      componentConfig={{
+        Select: {
+          getPopupContainer: (node) => {
+            return node;
+          },
+        },
+      }}
     >
       {contextHolder}
       <Layout className={"tw-min-h-screen"}>

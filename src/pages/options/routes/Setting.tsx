@@ -16,7 +16,7 @@ import { useSystemConfig } from "./utils";
 import { subscribeMessage } from "@App/pages/store/global";
 import { SystemConfigChange, type SystemConfigKey } from "@App/pkg/config/config";
 import { type TKeyValue } from "@Packages/message/message_queue";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { systemConfig } from "@App/pages/store/global";
 import { initRegularUpdateCheck } from "@App/app/service/service_worker/regular_updatecheck";
 import { HookManager } from "@App/pkg/utils/hookManager";
@@ -108,14 +108,8 @@ function Setting() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scrollContainerRef = useRef<Element>(null);
-
   return (
-    <Space
-      ref={scrollContainerRef}
-      className="setting tw-w-full tw-h-full tw-overflow-auto tw-relative"
-      direction="vertical"
-    >
+    <Space className="setting tw-w-full tw-h-full tw-overflow-auto tw-relative" direction="vertical">
       {/* 基本设置 */}
       <Card title={t("general")} bordered={false}>
         <div className="tw-flex tw-items-center tw-justify-between tw-min-h-10">
@@ -132,7 +126,6 @@ function Setting() {
                 submitLanguage(value);
                 Message.success(t("language_change_tip")!);
               }}
-              getPopupContainer={() => scrollContainerRef.current!}
             >
               {languageList.map((item) => (
                 <Select.Option key={item.key} value={item.key}>
@@ -235,7 +228,6 @@ function Setting() {
                     onChange={(value) => {
                       submitBadgeNumberType(value);
                     }}
-                    getPopupContainer={() => scrollContainerRef.current!}
                   >
                     <Select.Option value="none">{t("badge_type_none")}</Select.Option>
                     <Select.Option value="run_count">{t("badge_type_run_count")}</Select.Option>
@@ -333,7 +325,6 @@ function Setting() {
                     initRegularUpdateCheck(systemConfig);
                   });
                 }}
-                getPopupContainer={() => scrollContainerRef.current!}
               >
                 <Select.Option value="0">{t("never")}</Select.Option>
                 <Select.Option value="21600">{t("6_hours")}</Select.Option>
