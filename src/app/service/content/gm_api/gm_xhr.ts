@@ -614,10 +614,10 @@ export function GM_xmlhttpRequest(
             responseText = false;
             finalResultBuffers = null;
             finalResultText = null;
-            const xhrReponse = makeXHRCallbackParam?.(data) ?? {};
-            details.onloadend?.(xhrReponse);
+            const xhrResponse = makeXHRCallbackParam?.(data) ?? {};
+            details.onloadend?.(xhrResponse);
             if (errorOccur === null) {
-              retPromiseResolve?.(xhrReponse);
+              retPromiseResolve?.(xhrResponse);
             } else {
               retPromiseReject?.(errorOccur);
             }
