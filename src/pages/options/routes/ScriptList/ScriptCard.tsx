@@ -63,8 +63,9 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
     zIndex: isDragging ? 10 : "auto",
   };
 
+  const ref = (children as any).ref;
   // Extract the child's existing ref and compose it with dnd-kit
-  const composedRefs = composeRefs((children as any).ref, setNodeRef);
+  const mergedRef = React.useMemo(() => composeRefs<HTMLDivElement>(setNodeRef, ref), [setNodeRef, ref]);
 
   const ctxValue = useMemo(
     () => ({
@@ -79,7 +80,7 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
       {React.cloneElement(children, {
         ...attributes,
         ...children.props,
-        ref: composedRefs,
+        ref: mergedRef,
         style,
       })}
     </SortableDragCtx.Provider>
