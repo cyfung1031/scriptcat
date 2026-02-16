@@ -305,6 +305,11 @@ const MainLayout: React.FC<{
             return node.parentNode as Element;
           },
         },
+        Tooltip: {
+          getPopupContainer: (node) => {
+            return node.parentNode as Element;
+          },
+        },
       }}
     >
       {contextHolder}
