@@ -656,7 +656,8 @@ function App() {
     if (searchParamUrl) {
       try {
         // 取url=之后的所有内容
-        const rawUrl = location.search.match(/\?url=(.+)/)?.[1] || searchParamUrl;
+        const idx = location.search.indexOf("url=");
+        const rawUrl = idx !== -1 ? location.search.slice(idx + 4) : searchParamUrl;
         const urlObject = new URL(rawUrl);
         // 验证解析后的 URL 是否具备核心要素，确保安全性与合法性
         if (urlObject.protocol && urlObject.hostname && urlObject.pathname) {
