@@ -108,7 +108,7 @@ function Setting() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scrollContainerRef = useRef(null);
+  const scrollContainerRef = useRef<Element>(null);
 
   return (
     <Space
@@ -132,7 +132,7 @@ function Setting() {
                 submitLanguage(value);
                 Message.success(t("language_change_tip")!);
               }}
-              getPopupContainer={() => scrollContainerRef.current}
+              getPopupContainer={() => scrollContainerRef.current!}
             >
               {languageList.map((item) => (
                 <Select.Option key={item.key} value={item.key}>
@@ -235,6 +235,7 @@ function Setting() {
                     onChange={(value) => {
                       submitBadgeNumberType(value);
                     }}
+                    getPopupContainer={() => scrollContainerRef.current!}
                   >
                     <Select.Option value="none">{t("badge_type_none")}</Select.Option>
                     <Select.Option value="run_count">{t("badge_type_run_count")}</Select.Option>
@@ -332,6 +333,7 @@ function Setting() {
                     initRegularUpdateCheck(systemConfig);
                   });
                 }}
+                getPopupContainer={() => scrollContainerRef.current!}
               >
                 <Select.Option value="0">{t("never")}</Select.Option>
                 <Select.Option value="21600">{t("6_hours")}</Select.Option>
