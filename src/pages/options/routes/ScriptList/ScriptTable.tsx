@@ -707,10 +707,16 @@ const ScriptTable = ({
       .filter((col) => col.width !== -1); // Remove hidden columns
   }, [columns, manualWidths]);
 
-  const components0: ComponentsProps = {
-    header: {
-      operations: useCallback(
-        ({ selectionNode, expandNode }: { selectionNode?: React.ReactNode; expandNode?: React.ReactNode }) => [
+  const components: ComponentsProps = useMemo(
+    () => ({
+      header: {
+        operations: ({
+          selectionNode,
+          expandNode,
+        }: {
+          selectionNode?: React.ReactNode;
+          expandNode?: React.ReactNode;
+        }) => [
           {
             node: <th className="script-sort" style={{ borderRadius: 0 }} />,
             width: 34,
@@ -724,12 +730,15 @@ const ScriptTable = ({
             node: selectionNode,
           },
         ],
-        []
-      ),
-    },
-    body: {
-      operations: useCallback(
-        ({ selectionNode, expandNode }: { selectionNode?: React.ReactNode; expandNode?: React.ReactNode }) => [
+      },
+      body: {
+        operations: ({
+          selectionNode,
+          expandNode,
+        }: {
+          selectionNode?: React.ReactNode;
+          expandNode?: React.ReactNode;
+        }) => [
           {
             node: (
               <td>
@@ -749,15 +758,12 @@ const ScriptTable = ({
             node: selectionNode,
           },
         ],
-        []
-      ),
-      tbody: DraggableContainer,
-      row: DraggableRow,
-    },
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const components = useMemo(() => components0, []);
+        tbody: DraggableContainer,
+        row: DraggableRow,
+      },
+    }),
+    []
+  );
 
   // 处理拖拽排序
   const sensors = useSensors(
