@@ -38,6 +38,18 @@ type DraggableEntryProps = {
   children: React.ReactElement;
 };
 
+function composeRefs<T>(...refs: React.Ref<T>[]): (node: T | null) => void {
+  return (node) => {
+    for (const ref of refs) {
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        (ref as React.MutableRefObject<T | null>).current = node;
+      }
+    }
+  };
+}
+
 const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   const { setNodeRef, transform, transition, listeners, setActivatorNodeRef, isDragging, attributes } = useSortable({
     id: recordUUID,
@@ -51,6 +63,9 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
     zIndex: isDragging ? 10 : "auto",
   };
 
+  // Extract the child's existing ref and compose it with dnd-kit
+  const composedRefs = composeRefs((children as any).ref, setNodeRef);
+
   const ctxValue = useMemo(
     () => ({
       listeners,
@@ -62,9 +77,10 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   return (
     <SortableDragCtx.Provider value={ctxValue}>
       {React.cloneElement(children, {
-        ref: setNodeRef,
-        style,
         ...attributes,
+        ...children.props,
+        ref: composedRefs,
+        style,
       })}
     </SortableDragCtx.Provider>
   );
