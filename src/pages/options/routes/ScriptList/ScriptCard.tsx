@@ -70,6 +70,7 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   );
 };
 
+DraggableEntry.displayName = "DraggableEntry";
 const DragHandle = () => {
   const sortable = useContext(SortableDragCtx);
 
