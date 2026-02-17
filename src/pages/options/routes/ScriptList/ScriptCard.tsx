@@ -35,11 +35,13 @@ const SortableDragCtx = createContext<DragCtx>(null);
 
 type DraggableEntryProps = {
   recordUUID: string;
-  children: React.ReactElement;
+  children: React.ReactElement & {
+    ref?: React.Ref<Element>;
+  };
 };
 
-function composeRefs<T>(...refs: React.Ref<T>[]): (node: T | null) => void {
-  return (node) => {
+function composeRefs<T>(...refs: (React.Ref<T> | undefined)[]): (node: T | null) => void {
+  return (node: T | null) => {
     for (const ref of refs) {
       if (typeof ref === "function") {
         ref(node);
@@ -50,22 +52,34 @@ function composeRefs<T>(...refs: React.Ref<T>[]): (node: T | null) => void {
   };
 }
 
-const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
+/**
+ * DraggableInjector 不会转发自身的 ref。
+ *
+ * 相反，它会读取子元素已有的 ref，
+ * 并将其与 dnd-kit 的 `setNodeRef` 进行合并，
+ * 然后通过 cloneElement 将合并后的 ref 注入回子元素。
+ *
+ * 这个组件是一个行为包装器，而不是 DOM 包装器。
+ */
+const DraggableInjector = ({ recordUUID, children }: DraggableEntryProps) => {
+  // 有意不使用 forwardRef。
+  // 可拖拽的 ref 必须绑定在子元素本身，
+  // 而不是绑定在这个包装组件上。
   const { setNodeRef, transform, transition, listeners, setActivatorNodeRef, isDragging, attributes } = useSortable({
     id: recordUUID,
   });
 
   const style = {
-    ...children.props.style, // Merge existing styles
+    ...children.props.style, // 合并已有样式
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 10 : "auto",
   };
 
-  const ref = (children as any).ref;
-  // Extract the child's existing ref and compose it with dnd-kit
-  const mergedRef = React.useMemo(() => composeRefs<HTMLDivElement>(setNodeRef, ref), [setNodeRef, ref]);
+  const ref = children.ref;
+  // 提取子元素原有的 ref，并与 dnd-kit 的 ref 进行合并
+  const mergedRef = React.useMemo(() => composeRefs<Element>(setNodeRef, ref), [setNodeRef, ref]);
 
   const ctxValue = useMemo(
     () => ({
@@ -79,7 +93,6 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
     <SortableDragCtx.Provider value={ctxValue}>
       {React.cloneElement(children, {
         ...attributes,
-        ...children.props,
         ref: mergedRef,
         style,
       })}
@@ -87,7 +100,6 @@ const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   );
 };
 
-DraggableEntry.displayName = "DraggableEntry";
 const DragHandle = () => {
   const sortable = useContext(SortableDragCtx);
 
@@ -172,7 +184,7 @@ export const ScriptCardItem = React.memo(
     // console.log("Rendered - " + item.name); // 用于检查垃圾React有否过度更新
 
     return (
-      <DraggableEntry recordUUID={item.uuid}>
+      <DraggableInjector recordUUID={item.uuid}>
         <Card
           hoverable
           className="script-card"
@@ -370,7 +382,7 @@ export const ScriptCardItem = React.memo(
             </div>
           </div>
         </Card>
-      </DraggableEntry>
+      </DraggableInjector>
     );
   },
   (prevProps, nextProps) => {
@@ -419,10 +431,10 @@ const ScriptCard = ({
 }: ScriptCardProps) => {
   const { t } = useTranslation();
 
-  // Sensors — move them here (or even higher in parent) so they're stable
+  // 传感器 —— 放在这里（或更高层父组件）以保持稳定引用
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 3 }, // ← prevents accidental drag on click
+      activationConstraint: { distance: 3 }, // 防止点击时误触发拖拽
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
