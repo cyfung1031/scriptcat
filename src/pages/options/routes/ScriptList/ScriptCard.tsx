@@ -50,7 +50,7 @@ function composeRefs<T>(...refs: React.Ref<T>[]): (node: T | null) => void {
   };
 }
 
-const DraggableEntry = React.forwardRef<HTMLDivElement, DraggableEntryProps>(({ recordUUID, children }, ref) => {
+const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   const { setNodeRef, transform, transition, listeners, setActivatorNodeRef, isDragging, attributes } = useSortable({
     id: recordUUID,
   });
@@ -63,6 +63,7 @@ const DraggableEntry = React.forwardRef<HTMLDivElement, DraggableEntryProps>(({ 
     zIndex: isDragging ? 10 : "auto",
   };
 
+  const ref = (children as any).ref;
   // Extract the child's existing ref and compose it with dnd-kit
   const mergedRef = React.useMemo(() => composeRefs<HTMLDivElement>(setNodeRef, ref), [setNodeRef, ref]);
 
@@ -84,7 +85,7 @@ const DraggableEntry = React.forwardRef<HTMLDivElement, DraggableEntryProps>(({ 
       })}
     </SortableDragCtx.Provider>
   );
-});
+};
 
 DraggableEntry.displayName = "DraggableEntry";
 const DragHandle = () => {
