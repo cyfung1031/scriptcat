@@ -35,36 +35,10 @@ const SortableDragCtx = createContext<DragCtx>(null);
 
 type DraggableEntryProps = {
   recordUUID: string;
-  children: React.ReactElement & {
-    ref?: React.Ref<Element>;
-  };
+  children: React.ReactElement;
 };
 
-function composeRefs<T>(...refs: (React.Ref<T> | undefined)[]): (node: T | null) => void {
-  return (node: T | null) => {
-    for (const ref of refs) {
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        (ref as React.MutableRefObject<T | null>).current = node;
-      }
-    }
-  };
-}
-
-/**
- * DraggableInjector 不会转发自身的 ref。
- *
- * 相反，它会读取子元素已有的 ref，
- * 并将其与 dnd-kit 的 `setNodeRef` 进行合并，
- * 然后通过 cloneElement 将合并后的 ref 注入回子元素。
- *
- * 这个组件是一个行为包装器，而不是 DOM 包装器。
- */
-const DraggableInjector = ({ recordUUID, children }: DraggableEntryProps) => {
-  // 有意不使用 forwardRef。
-  // 可拖拽的 ref 必须绑定在子元素本身，
-  // 而不是绑定在这个包装组件上。
+const DraggableEntry = ({ recordUUID, children }: DraggableEntryProps) => {
   const { setNodeRef, transform, transition, listeners, setActivatorNodeRef, isDragging, attributes } = useSortable({
     id: recordUUID,
   });
@@ -76,10 +50,6 @@ const DraggableInjector = ({ recordUUID, children }: DraggableEntryProps) => {
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 10 : "auto",
   };
-
-  const ref = children.ref;
-  // 提取子元素原有的 ref，并与 dnd-kit 的 ref 进行合并
-  const mergedRef = React.useMemo(() => composeRefs<Element>(setNodeRef, ref), [setNodeRef, ref]);
 
   const ctxValue = useMemo(
     () => ({
@@ -93,7 +63,7 @@ const DraggableInjector = ({ recordUUID, children }: DraggableEntryProps) => {
     <SortableDragCtx.Provider value={ctxValue}>
       {React.cloneElement(children, {
         ...attributes,
-        ref: mergedRef,
+        ref: setNodeRef,
         style,
       })}
     </SortableDragCtx.Provider>
@@ -184,7 +154,7 @@ export const ScriptCardItem = React.memo(
     // console.log("Rendered - " + item.name); // 用于检查垃圾React有否过度更新
 
     return (
-      <DraggableInjector recordUUID={item.uuid}>
+      <DraggableEntry recordUUID={item.uuid}>
         <Card
           hoverable
           className="script-card"
@@ -382,7 +352,7 @@ export const ScriptCardItem = React.memo(
             </div>
           </div>
         </Card>
-      </DraggableInjector>
+      </DraggableEntry>
     );
   },
   (prevProps, nextProps) => {

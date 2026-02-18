@@ -104,22 +104,11 @@ const DraggableContainer = React.forwardRef<HTMLTableSectionElement, DraggableCo
 
 DraggableContainer.displayName = "DraggableContainer";
 
-function composeRefs<T>(...refs: React.Ref<T>[]): (node: T | null) => void {
-  return (node) => {
-    for (const ref of refs) {
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        (ref as React.MutableRefObject<T | null>).current = node;
-      }
-    }
-  };
-}
-
-const DraggableRow = React.forwardRef<
-  HTMLTableRowElement,
-  { record: ScriptLoading; index: number } & React.HTMLAttributes<HTMLTableRowElement>
->(({ record, index: _index, ...rest }, ref) => {
+const DraggableRow = ({
+  record,
+  index: _index,
+  ...rest
+}: { record: ScriptLoading; index: number } & React.HTMLAttributes<HTMLTableRowElement>) => {
   const sortable = useSortable({ id: record.uuid });
   const { setNodeRef, transform, transition, listeners, setActivatorNodeRef } = sortable;
 
@@ -127,8 +116,6 @@ const DraggableRow = React.forwardRef<
     transform: CSS.Transform.toString(transform),
     transition,
   };
-
-  const mergedRef = React.useMemo(() => composeRefs<HTMLTableRowElement>(setNodeRef, ref), [setNodeRef, ref]);
 
   const ctxValue = useMemo(
     () => ({
@@ -140,10 +127,11 @@ const DraggableRow = React.forwardRef<
 
   return (
     <SortableDragCtx.Provider value={ctxValue}>
-      <tr ref={mergedRef} style={style} {...rest} />
+      <tr ref={setNodeRef} style={style} {...rest} />
     </SortableDragCtx.Provider>
   );
-});
+};
+
 DraggableRow.displayName = "DraggableRow";
 
 const DragHandle = () => {
