@@ -203,9 +203,9 @@ export default class GMApi extends GM_Base {
 
   constructor(
     public prefix: string,
-    public message: Message | undefined,
+    public message: Message,
     public contentMsg: Message,
-    public scriptRes: ScriptRunResource | undefined
+    public scriptRes: ScriptRunResource
   ) {
     // testing only 仅供测试用
     const valueChangeListener = new ListenerManager<GMTypes.ValueChangeListener>();
@@ -780,7 +780,9 @@ export default class GMApi extends GM_Base {
     }
 
     if (typeof tagName !== "string") throw new Error("The parameter 'tagName' of GM_addElement shall be a string.");
-    if (typeof attrs !== "object") throw new Error("The parameter 'attrs' of GM_addElement shall be an object.");
+    if (attrs !== null && typeof attrs !== "object") {
+      throw new Error("The parameter 'attrs' of GM_addElement shall be an object.");
+    }
 
     // 控制传送参数，避免参数出现 non-json-selizable
     const attrsCT = {} as Record<string, string | number>;
