@@ -85,25 +85,3 @@ export const createMouseEvent =
     : (type: string, eventInitDict?: MouseEventInit | undefined): MouseEvent => {
         return new MouseEventClone(type, eventInitDict);
       };
-
-type TPrimitive = string | number | boolean;
-interface INestedPrimitive {
-  [key: string]: TPrimitive | INestedPrimitive;
-}
-type TNestedPrimitive = TPrimitive | INestedPrimitive;
-
-export const dispatchMyEvent = <T extends Record<string, TNestedPrimitive>>(
-  type: string,
-  eventInitDict: MouseEventInit | Omit<T, "movementX" | "relatedTarget">
-) => {
-  let resFalse;
-  if ("movementX" in eventInitDict) {
-    resFalse = pageDispatchEvent(createMouseEvent(type, eventInitDict));
-  } else {
-    resFalse = pageDispatchCustomEvent(type, eventInitDict);
-  }
-  if (resFalse !== false && eventInitDict.cancelable === true) {
-    // 通讯设置正确的话应不会发生
-    throw new Error("Page Message Error");
-  }
-};

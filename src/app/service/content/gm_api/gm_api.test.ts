@@ -45,7 +45,7 @@ describe.concurrent("@grant GM", () => {
       "GM_notification",
     ];
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     script.code = `return {
       GM_getValue: this.GM_getValue,
       GM_getTab: this.GM_getTab,
@@ -103,7 +103,7 @@ describe.concurrent("@grant GM", () => {
       "GM.notification",
     ];
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     script.code = `return {
       ["GM.getValue"]: GM.getValue,
       ["GM.getTab"]: GM.getTab,
@@ -153,7 +153,7 @@ describe.concurrent("window.*", () => {
     script.metadata.grant = ["window.close"];
     script.code = `return window.close;`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual(expect.any(Function));
@@ -167,7 +167,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM_getValue"];
     script.code = `return GM_getValue("test");`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("ok");
@@ -178,7 +178,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM.getValue"];
     script.code = `return GM.getValue("test").then(v=>v+"!");`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("ok!");
@@ -190,7 +190,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM_listValues"];
     script.code = `return GM_listValues().join("-");`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("test1-test2-test3");
@@ -206,7 +206,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM_listValues"];
     script.code = `return GM_listValues().join("-");`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("test5-test2-test3-test1"); // TM也没有sort
@@ -218,7 +218,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM.listValues"];
     script.code = `return GM.listValues().then(v=>v.join("-"));`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("test1-test2-test3");
@@ -234,7 +234,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM.listValues"];
     script.code = `return GM.listValues().then(v=>v.join("-"));`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual("test5-test2-test3-test1"); // TM也没有sort
@@ -246,7 +246,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM_getValues"];
     script.code = `return GM_getValues(["test2", "test3", "test1"]);`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret.test1).toEqual("23");
@@ -267,7 +267,7 @@ describe.concurrent("GM Api", () => {
     script.metadata.grant = ["GM.getValues"];
     script.code = `return GM.getValues(["test2", "test3", "test1"]).then(v=>v);`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret.test1).toEqual("23");
@@ -284,7 +284,7 @@ describe.concurrent("early-script", () => {
     script.metadata["grant"] = ["CAT_scriptLoaded"];
     script.code = `return CAT_scriptLoaded().then(()=>123);`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     // 抛出错误
     await expect(exec.exec()).rejects.toThrowError();
@@ -297,7 +297,7 @@ describe.concurrent("early-script", () => {
     script.metadata["grant"] = ["CAT_scriptLoaded"];
     script.code = `return CAT_scriptLoaded().then(()=>123);`;
     // @ts-ignore
-    const exec = new ExecScript(script, undefined, undefined, nilFn, envInfo);
+    const exec = new ExecScript(script, undefined, undefined, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = exec.exec();
     // 触发envInfo
@@ -318,7 +318,7 @@ describe.concurrent("GM_menu", () => {
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const retPromise = exec.exec();
 
@@ -368,7 +368,7 @@ describe.concurrent("GM_menu", () => {
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "content", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = exec.exec();
     // 验证 sendMessage 是否被调用
@@ -390,7 +390,7 @@ describe.concurrent("GM_menu", () => {
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const retPromise = exec.exec();
 
@@ -453,7 +453,7 @@ describe.concurrent("GM_menu", () => {
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "content", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
     expect(ret).toEqual({ id1: "abc", id2: "abc", id3: 1, id4: 2, id5: "3", id6: 3, id7: 3, id8: 4 });
@@ -482,7 +482,7 @@ describe.concurrent("GM_value", () => {
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
 
@@ -612,7 +612,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "content", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "content", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
 
@@ -727,7 +727,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
 
@@ -850,7 +850,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
 
@@ -919,7 +919,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const ret = await exec.exec();
 
@@ -995,7 +995,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const retPromise = exec.exec();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
@@ -1029,7 +1029,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     // remote = true
     const retPromise = exec.exec();
@@ -1055,7 +1055,7 @@ return { value1, value2, value3, values1,values2, allValues1, allValues2, value4
       sendMessage: mockSendMessage,
     } as unknown as Message;
     // @ts-ignore
-    const exec = new ExecScript(script, "scripting", mockMessage, nilFn, envInfo);
+    const exec = new ExecScript(script, "scripting", mockMessage, undefined, nilFn, envInfo);
     exec.scriptFunc = compileScript(compileScriptCode(script));
     const retPromise = exec.exec();
 
