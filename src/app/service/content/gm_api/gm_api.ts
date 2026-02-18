@@ -759,7 +759,7 @@ export default class GMApi extends GM_Base {
   public GM_addElement(
     parentNode: Node | string,
     tagName: string | Record<string, string | number | boolean>,
-    attrs: Record<string, string | number | boolean> | Node | null = {}
+    attrs: Record<string, string | number | boolean> | null = {}
   ): Element | undefined {
     if (!this.message || !this.scriptRes) return;
     // 与content页的消息通讯实际是同步, 此方法不需要经过background
@@ -801,7 +801,6 @@ export default class GMApi extends GM_Base {
     const resp = (<CustomEventMessage>this.contentMsg).syncSendMessage({
       action: `content/runtime/addElement`,
       data: {
-        el: null,
         params: [parentNodeId, tagName, attrsCT],
       },
     });
@@ -823,7 +822,7 @@ export default class GMApi extends GM_Base {
   public "GM.addElement"(
     parentNode: Node | string,
     tagName: string | Record<string, string | number | boolean>,
-    attrs: Record<string, string | number | boolean> | Node | null = {}
+    attrs: Record<string, string | number | boolean> | null = {}
   ): Promise<Element | undefined> {
     return new Promise<Element | undefined>((resolve) => {
       const ret = this.GM_addElement(parentNode, tagName, attrs);
