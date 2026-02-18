@@ -204,8 +204,8 @@ export default class GMApi extends GM_Base {
   constructor(
     public prefix: string,
     public message: Message | undefined,
-    public scriptRes: ScriptRunResource | undefined,
-    public contentMsg: Message
+    public contentMsg: Message,
+    public scriptRes: ScriptRunResource | undefined
   ) {
     // testing only 仅供测试用
     const valueChangeListener = new ListenerManager<GMTypes.ValueChangeListener>();

@@ -25,13 +25,16 @@ export default class ExecScript {
 
   constructor(
     scriptRes: TScriptInfo,
-    envPrefix: "scripting" | "offscreen",
-    message: Message,
-    contentMsg: Message,
-    code: string | ScriptFunc,
-    envInfo: GMInfoEnv,
-    globalInjection?: { [key: string]: any } // 主要是全域API. @grant none 时无效
+    options: {
+      envPrefix: string;
+      message: Message;
+      contentMsg: Message;
+      code: string | ScriptFunc;
+      envInfo: GMInfoEnv;
+      globalInjection?: { [key: string]: any }; // 主要是全域API. @grant none 时无效
+    }
   ) {
+    const { envPrefix, message, contentMsg, code, envInfo, globalInjection } = options;
     this.scriptRes = scriptRes;
     this.logger = LoggerCore.getInstance().logger({
       component: "exec",

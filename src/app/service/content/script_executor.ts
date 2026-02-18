@@ -135,7 +135,13 @@ export class ScriptExecutor {
   execScriptEntry(scriptEntry: ExecScriptEntry) {
     const { scriptLoadInfo, scriptFunc, envInfo } = scriptEntry;
 
-    const execScript = new ExecScript(scriptLoadInfo, "scripting", this.msg, this.contentMsg, scriptFunc, envInfo);
+    const execScript = new ExecScript(scriptLoadInfo, {
+      envPrefix: "scripting",
+      message: this.msg,
+      contentMsg: this.contentMsg,
+      code: scriptFunc,
+      envInfo,
+    });
     this.execScriptMap.set(scriptLoadInfo.uuid, execScript);
     const metadata = scriptLoadInfo.metadata || {};
     const resource = scriptLoadInfo.resource;
