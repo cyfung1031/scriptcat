@@ -33,7 +33,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
-(async function () {
+(function () {
   "use strict";
 
   console.log("%c=== ScriptCat GM API 测试开始 ===", "color: blue; font-size: 16px; font-weight: bold;");
@@ -145,8 +145,44 @@
     assert("not_found", GM_getValue("test_delete", "not_found"), "值应该被删除");
   });
 
-  // ============ GM_addValueChangeListener 测试 ============
-  await (async () => {
+  // ============ GM_addStyle 测试 ============
+  console.log("\n%c--- GM 样式 API 测试 ---", "color: orange; font-weight: bold;");
+
+  test("GM_addStyle - CSS字符串", () => {
+    const css = `
+            .scriptcat-test {
+                color: red;
+                font-weight: bold;
+            }
+        `;
+    const element = GM_addStyle(css);
+    assert(true, element && element.tagName === "STYLE", "应该返回 style 元素");
+    console.log("添加的样式元素:", element);
+  });
+
+  // ============ GM_getResourceText/URL 测试 ============
+  console.log("\n%c--- GM 资源 API 测试 ---", "color: orange; font-weight: bold;");
+
+  test("GM_getResourceText", () => {
+    assert("function", typeof GM_getResourceText, "GM_getResourceText 应该是函数");
+
+    const css = GM_getResourceText("testCSS");
+    assert("string", typeof css, "应该返回字符串");
+    assert(163870, css.length, "资源内容长度应该是 163870");
+    console.log("资源文本长度:", css.length);
+  });
+
+  test("GM_getResourceURL", () => {
+    assert("function", typeof GM_getResourceURL, "GM_getResourceURL 应该是函数");
+
+    const url = GM_getResourceURL("testCSS");
+    assert("string", typeof url, "应该返回字符串");
+    assert(true, url.startsWith("data:") || url.startsWith("blob:"), "应该返回 data URL 或 blob URL");
+    console.log("资源 URL:", url.substring(0, 50) + "...");
+  });
+
+  (async () => {
+    // ============ GM_addValueChangeListener 测试 ============
     await testAsync("GM_addValueChangeListener", () => {
       return new Promise(async (resolve, reject) => {
         let listenerId = null;
@@ -216,63 +252,56 @@
         }, 50);
       });
     });
-  })();
 
-  // ============ GM_addStyle 测试 ============
-  console.log("\n%c--- GM 样式 API 测试 ---", "color: orange; font-weight: bold;");
+    // ============ GM_addElement 测试 ============
+    await testAsync("GM_addElement - 创建元素", async () => {
+      assert("function", typeof GM_addElement, "GM_addElement 应该是函数");
 
-  test("GM_addStyle - CSS字符串", () => {
-    const css = `
-            .scriptcat-test {
-                color: red;
-                font-weight: bold;
-            }
-        `;
-    const element = GM_addStyle(css);
-    assert(true, element && element.tagName === "STYLE", "应该返回 style 元素");
-    console.log("添加的样式元素:", element);
-  });
+      const div = GM_addElement("div", {
+        textContent: "ScriptCat GM_addElement 测试",
+        style: "position: fixed; top: 10px; right: 10px; background: yellow; padding: 10px; z-index: 9999;",
+      });
+      assert(true, div && div.tagName === "DIV", "应该返回 div 元素");
+      console.log("添加的元素:", div);
 
-  // ============ GM_addElement 测试 ============
-  test("GM_addElement - 创建元素", () => {
-    assert("function", typeof GM_addElement, "GM_addElement 应该是函数");
+      // 创建脚本元素测试
+      const script = GM_addElement("script", {
+        textContent: 'window.foo = "bar";',
+      });
+      assert(true, script && script.tagName === "SCRIPT", "应该返回 script 元素");
+      assert("bar", unsafeWindow.foo, "脚本内容应该执行，unsafeWindow.foo 应该是 'bar'");
+      console.log("添加的脚本元素:", script);
 
-    const div = GM_addElement("div", {
-      textContent: "ScriptCat GM_addElement 测试",
-      style: "position: fixed; top: 10px; right: 10px; background: yellow; padding: 10px; z-index: 9999;",
+      document.querySelector(".container").insertBefore(script, document.querySelector(".masthead"));
+
+      // onload 和 onerror 测试 - 插入图片元素
+      let img;
+      await new Promise((resolve, reject) => {
+        img = GM_addElement(document.body, "img", {
+          src: "https://www.tampermonkey.net/favicon.ico",
+          onload: () => {
+            console.log("图片加载成功");
+            resolve();
+          },
+          onerror: (error) => {
+            reject(new Error("图片加载失败: " + error));
+          },
+        });
+      });
+      assert(true, img && img.tagName === "IMG", "应该返回 img 元素");
+      console.log("添加的图片元素:", img);
+
+      // 3秒后移除
+      setTimeout(() => {
+        script.remove();
+        div.remove();
+        img.remove();
+      }, 3000);
     });
-    assert(true, div && div.tagName === "DIV", "应该返回 div 元素");
-    console.log("添加的元素:", div);
 
-    // 3秒后移除
-    setTimeout(() => div.remove(), 3000);
-  });
+    // ============ GM_xmlhttpRequest 测试 ============
+    console.log("\n%c--- GM 网络请求 API 测试 ---", "color: orange; font-weight: bold;");
 
-  // ============ GM_getResourceText/URL 测试 ============
-  console.log("\n%c--- GM 资源 API 测试 ---", "color: orange; font-weight: bold;");
-
-  test("GM_getResourceText", () => {
-    assert("function", typeof GM_getResourceText, "GM_getResourceText 应该是函数");
-
-    const css = GM_getResourceText("testCSS");
-    assert("string", typeof css, "应该返回字符串");
-    assert(163870, css.length, "资源内容长度应该是 163870");
-    console.log("资源文本长度:", css.length);
-  });
-
-  test("GM_getResourceURL", () => {
-    assert("function", typeof GM_getResourceURL, "GM_getResourceURL 应该是函数");
-
-    const url = GM_getResourceURL("testCSS");
-    assert("string", typeof url, "应该返回字符串");
-    assert(true, url.startsWith("data:") || url.startsWith("blob:"), "应该返回 data URL 或 blob URL");
-    console.log("资源 URL:", url.substring(0, 50) + "...");
-  });
-
-  // ============ GM_xmlhttpRequest 测试 ============
-  console.log("\n%c--- GM 网络请求 API 测试 ---", "color: orange; font-weight: bold;");
-
-  (async () => {
     await testAsync("GM_xmlhttpRequest - GET 请求", () => {
       return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
