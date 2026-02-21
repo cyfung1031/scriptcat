@@ -2,7 +2,6 @@ import { type Script, ScriptDAO } from "@App/app/repo/scripts";
 import { FaviconDAO, type FaviconFile, type FaviconRecord } from "@App/app/repo/favicon";
 import { v5 as uuidv5 } from "uuid";
 import { getFaviconRootFolder } from "@App/app/service/service_worker/utils";
-import { readBlobContent } from "@App/pkg/utils/encoding";
 
 let scriptDAO: ScriptDAO | null = null;
 let faviconDAO: FaviconDAO | null = null;
@@ -92,17 +91,6 @@ export const timeoutAbortSignal =
         return signal;
       };
 
-/**
- * 解析相对URL为绝对URL
- */
-const resolveUrl = (href: string, base: string): string => {
-  try {
-    return new URL(href, base).href;
-  } catch {
-    return href; // 如果解析失败，返回原始href
-  }
-};
-
 export const parseFaviconsNew = (html: string, callback: (href: string) => void) => {
   // Early exit if no link tags
   if (!html.toLowerCase().includes("<link")) return;
@@ -125,58 +113,16 @@ export const parseFaviconsNew = (html: string, callback: (href: string) => void)
   return;
 };
 
-const getFilename = (url: string) => {
-  const i = url.lastIndexOf("/");
-  if (i >= 0) return url.substring(i + 1);
-  return url;
-};
-
-const checkFileNameEqual = (a: string, b: string) => {
-  const name1 = getFilename(a);
-  const name2 = getFilename(b);
-  return 0 === name1.localeCompare(name2, "en", { sensitivity: "base" });
-};
-
 /**
  * 从域名获取favicon
  */
-export async function fetchIconByDomain(domain: string): Promise<string[]> {
+export async function fetchIconByDomain(domain: string): Promise<string> {
   const url = `https://${domain}`;
-  const icons: string[] = [];
-
-  // 设置超时时间（例如 5 秒）
-  const timeout = 5000; // 单位：毫秒
-
-  // 获取页面HTML
-  const response = await fetch(url, { signal: timeoutAbortSignal(timeout) });
-  const html = await readBlobContent(response, response.headers.get("content-type"));
-  const resolvedPageUrl = response.url;
-  const resolvedUrl = new URL(resolvedPageUrl);
-  const resolvedOrigin = resolvedUrl.origin;
-
-  parseFaviconsNew(html, (href) => icons.push(resolveUrl(href, resolvedPageUrl)));
-
-  // 检查默认favicon位置
-  if (icons.length === 0) {
-    const faviconUrl = `${resolvedOrigin}/favicon.ico`;
-    icons.push(faviconUrl);
+  const sDomain = new URL(url).hostname;
+  if (!sDomain || sDomain.length > 253) {
+    throw new Error("invalid domain name");
   }
-
-  const urls = await Promise.all(
-    icons.map((icon) =>
-      fetch(icon, { method: "HEAD", signal: timeoutAbortSignal(timeout) })
-        .then((res) => {
-          if (res.ok && checkFileNameEqual(res.url, icon)) {
-            return res.url;
-          }
-        })
-        .catch(() => {
-          // 忽略错误
-        })
-    )
-  );
-
-  return urls.filter((url) => !!url) as string[];
+  return `https://scriptcat.org/api/v2/open/favicons?domain=${encodeURIComponent(sDomain)}&sz=64`;
 }
 
 // 获取脚本的favicon
@@ -199,8 +145,7 @@ export const getScriptFavicon = async (uuid: string): Promise<FaviconRecord[]> =
     domains.map(async (domain) => {
       try {
         if (domain.domain) {
-          const icons = await fetchIconByDomain(domain.domain);
-          const icon = icons.length > 0 ? icons[0] : "";
+          const icon = await fetchIconByDomain(domain.domain);
           return { match: domain.match, website: "http://" + domain.domain, icon };
         }
       } catch {
