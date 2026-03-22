@@ -6,9 +6,11 @@ import {
   compileInjectScript,
   compilePreInjectScript,
   compileScriptCode,
+  compileScriptletCode,
   getScriptFlag,
   isEarlyStartScript,
   isInjectIntoContent,
+  isScriptletUnwrap,
 } from "../content/utils";
 import {
   extractUrlPatterns,
@@ -17,6 +19,7 @@ import {
   toUniquePatternStrings,
   type URLRuleEntry,
 } from "@App/pkg/utils/url_matcher";
+import { cacheInstance } from "@App/app/cache";
 
 export function getRunAt(runAts: string[]): chrome.extensionTypes.RunAt {
   // 没有 run-at 时为 undefined. Fallback 至 document_idle
@@ -173,13 +176,17 @@ export function compileInjectionCode(
   scriptCode: string,
   scriptUrlPatterns: URLRuleEntry[]
 ): string {
-  const preDocumentStartScript = isEarlyStartScript(scriptRes.metadata);
+  // 注意！ restoreJSCodeFromCompiledResource 跟 compileInjectionCode 的处理是不同的！
   let scriptInjectCode;
-  scriptCode = compileScriptCode(scriptRes, scriptCode);
-  if (preDocumentStartScript) {
-    scriptInjectCode = compilePreInjectScript(parseScriptLoadInfo(scriptRes, scriptUrlPatterns), scriptCode);
+  if (isScriptletUnwrap(scriptRes.metadata)) {
+    scriptInjectCode = compileScriptletCode(scriptRes, scriptCode, scriptUrlPatterns);
   } else {
-    scriptInjectCode = compileInjectScript(scriptRes, scriptCode);
+    scriptCode = compileScriptCode(scriptRes, scriptCode);
+    if (isEarlyStartScript(scriptRes.metadata)) {
+      scriptInjectCode = compilePreInjectScript(parseScriptLoadInfo(scriptRes, scriptUrlPatterns), scriptCode);
+    } else {
+      scriptInjectCode = compileInjectScript(scriptRes, scriptCode);
+    }
   }
   return scriptInjectCode;
 }
@@ -287,3 +294,20 @@ export const removeFavicon = (filename: string): Promise<void> => {
     .then((opfsRoot) => opfsRoot.getDirectoryHandle(`cached_favicons`))
     .then((faviconsFolder) => faviconsFolder.removeEntry(`${filename}`, { recursive: true }));
 };
+
+export type NotificationOptionCache = {
+  url?: string;
+};
+
+export async function InfoNotification(title: string, msg: string, options?: NotificationOptionCache) {
+  const notificationId = await chrome.notifications.create({
+    type: "basic",
+    title,
+    message: msg,
+    iconUrl: chrome.runtime.getURL("assets/logo.png"),
+  });
+  // 如果设定了url，则保存到cache里，在gm_api中集中处理
+  if (options) {
+    cacheInstance.set(`notification:${notificationId}:options`, options);
+  }
+}

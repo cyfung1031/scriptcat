@@ -4,11 +4,53 @@ import type { ScriptLoadInfo } from "../service_worker/types";
 import { DefinedFlags } from "../service_worker/runtime.consts";
 import { sourceMapTo } from "@App/pkg/utils/utils";
 import { ScriptEnvTag } from "@Packages/message/consts";
+import { embeddedPatternCheckerString, type EmbeddedURLRuleEntry, type URLRuleEntry } from "@App/pkg/utils/url_matcher";
 
 export type CompileScriptCodeResource = {
   name: string;
   code: string;
   require: Array<{ url: string; content: string }>;
+};
+
+// 参考了tm的实现
+export const waitBody = (callback: () => void) => {
+  // 只读取一次 document，避免重复访问 getter
+  let doc: Document | null = document;
+
+  // body 已存在，直接执行回调
+  if (doc.body) {
+    try {
+      callback();
+    } catch {
+      // 屏蔽错误，防止脚本报错导致后续脚本无法执行
+    }
+    return;
+  }
+
+  let handler: ((this: Document, ev: Event) => void) | null = function () {
+    // 通常只需等待 body 就绪
+    // 兼容少数页面在加载过程中替换 document 的情况
+    if (this.body || document !== this) {
+      // 确保只清理一次，防止因页面代码骑劫使移除失败后反复触发
+      if (handler !== null) {
+        this.removeEventListener("load", handler, false);
+        this.removeEventListener("DOMNodeInserted", handler, false);
+        this.removeEventListener("DOMContentLoaded", handler, false);
+        handler = null; // 释放引用，便于 GC
+
+        // 兼容 document 被替换时重新执行
+        waitBody(callback);
+      }
+    }
+  };
+
+  // 注意：避免使用 EventListenerObject
+  // 某些页面会 hook 事件 API，导致EventListenerObject的监听器或会失灵
+  doc.addEventListener("load", handler, false);
+  doc.addEventListener("DOMNodeInserted", handler, false);
+  doc.addEventListener("DOMContentLoaded", handler, false);
+
+  doc = null; // 释放引用，便于 GC
 };
 
 // 根据ScriptRunResource获取require的资源
@@ -23,6 +65,31 @@ export function getScriptRequire(scriptRes: ScriptRunResource): CompileScriptCod
     }
   }
   return resourceArray;
+}
+
+/**
+ * 构建unwrap脚本运行代码
+ * @see {@link ExecScript}
+ * @param scriptRes
+ * @param scriptCode
+ * @returns
+ */
+export function compileScriptletCode(
+  scriptRes: ScriptRunResource,
+  scriptCode: string,
+  scriptUrlPatterns: URLRuleEntry[]
+): string {
+  scriptCode = scriptCode ?? scriptRes.code;
+  const requireArray = getScriptRequire(scriptRes);
+  const requireCode = requireArray.map((r) => r.content).join("\n;");
+  // 在window[flag]注册一个空脚本让原本的脚本管理器知道并记录脚本成功执行
+  const reducedPatterns = scriptUrlPatterns.map(({ ruleType, ruleContent }) => ({
+    ruleType,
+    ruleContent,
+  })) satisfies EmbeddedURLRuleEntry[];
+  const urlCondition = embeddedPatternCheckerString("location.href", JSON.stringify(reducedPatterns));
+  const codeBody = `if(${urlCondition}){\n${requireCode}\n${scriptCode}\nwindow['${scriptRes.flag}']=function(){};\n}`;
+  return `${codeBody}${sourceMapTo(`${scriptRes.name}.user.js`)}\n`;
 }
 
 /**
@@ -42,6 +109,24 @@ export function compileScriptCode(scriptRes: ScriptRunResource, scriptCode?: str
   });
 }
 
+const addTryCatch = (code: string) =>
+  `
+      try {
+        {{functionBody}}
+      } catch (e) {
+        if (e.message && e.stack) {
+            console.error("ERROR: Execution of script '" + arguments[1] + "' failed! " + e.message);
+            console.log(e.stack);
+        } else {
+            console.error(e);
+        }
+      }
+  `
+    .trim()
+    .replace(/[\r\n]/g, "")
+    .replace(/\s+/g, " ")
+    .replace("{{functionBody}}", () => code);
+
 export function compileScriptCodeByResource(resource: CompileScriptCodeResource): string {
   const requireCode = resource.require.map((r) => r.content).join("\n;");
   const preCode = requireCode; // 不需要 async 封装
@@ -52,21 +137,17 @@ export function compileScriptCodeByResource(resource: CompileScriptCodeResource)
   // 使用sandboxContext时，arguments[0]为undefined, this.$则为一次性Proxy变量，用于全域拦截context
   // 非沙盒环境时，先读取 arguments[0]，因此不会读取页面环境的 this.$
   // 在UserScripts API中，由于执行不是在物件导向里呼叫，使用arrow function的话会把this改变。须使用 .call(this) [ 或 .bind(this)() ]
-  const codeBody = `try {
-  with(arguments[0]||this.$){
-${preCode}
-    return (async function(){
-${code}
-    }).call(this);
-  }
-} catch (e) {
-  if (e.message && e.stack) {
-      console.error("ERROR: Execution of script '" + arguments[1] + "' failed! " + e.message);
-      console.log(e.stack);
-  } else {
-      console.error(e);
-  }
-}`;
+
+  const joinedCode = [
+    "with(arguments[0]||this.$){",
+    `${preCode}`,
+    "return(async function(){",
+    `${code}`,
+    "}).call(this);}",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const codeBody = addTryCatch(joinedCode);
   return `${codeBody}${sourceMapTo(`${resource.name}.user.js`)}\n`;
 }
 
@@ -184,6 +265,10 @@ export function metadataBlankOrTrue(metadata: SCMetadata, key: string): boolean 
 
 export function isEarlyStartScript(metadata: SCMetadata): boolean {
   return metadataBlankOrTrue(metadata, "early-start") && metadata["run-at"]?.[0] === "document-start";
+}
+
+export function isScriptletUnwrap(metadata: SCMetadata): boolean {
+  return metadataBlankOrTrue(metadata, "unwrap");
 }
 
 export function isInjectIntoContent(metadata: SCMetadata): boolean {
