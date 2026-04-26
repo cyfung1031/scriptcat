@@ -12,7 +12,7 @@ import semver from "semver";
 
 // 目前 ScriptCat MV3 未正式支持 Firefox，
 // 测试人员可修改 PACK_FIREFOX 为 true 作个人测试用途
-const PACK_FIREFOX = false;
+const PACK_FIREFOX = true;
 
 // ============================================================================
 
@@ -114,7 +114,11 @@ async function addDir(zip, localDir, toDir, filters) {
       if (stats.isDirectory()) {
         await sub(localPath, `${toPath}/`);
       } else {
-        zip.file(toPath, await fs.readFile(localPath));
+        const opts = {};
+        const date = new Date();
+        const dateWithOffset = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+        opts.date = dateWithOffset;
+        zip.file(toPath, await fs.readFile(localPath), opts);
       }
     }
   };
