@@ -1,0 +1,4 @@
+ChatGPT GitHub connector write test.
+Repository: cyfung1031/scriptcat
+Branch: sync-research
+Created for read/commit/push verification; safe to delete.
