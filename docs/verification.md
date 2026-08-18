@@ -274,14 +274,15 @@ screenshot doesn't demonstrate the other renders correctly.
 
 ## Step 4 — Report honestly
 
-Verification only counts if the result is reported as observed (this mirrors the engineering principle: evidence
-before assertions).
+Verification only counts if the result is reported with the required evidence (this mirrors the engineering
+principle: evidence before assertions).
 
 - Record one verdict **per claim**, not one for the run, using the three labels the
   [report template](./references/verification-report-template.md#verdicts-are-per-claim-and-there-are-three-of-them)
   defines: `holds`, `does not hold`, `not observed`.
-- If it works, say so and state *what you ran* and *what you observed* (the summary line, the screenshot, the
-  asserted value, and any video/report path).
+- If it works, say so and state *what you ran* and *what evidence decided it* (the runtime observation, or the
+  closure-window observation/causal proof required for a negative claim, plus any screenshot, asserted value,
+  and video/report path).
 - If it fails, **say that plainly** with the console/output — do not soften it, do not claim success you did not
   see. A check you never reached is `not observed`, never `holds`: a run that verified two of three claims is
   reported as two of three, not as a pass.

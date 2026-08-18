@@ -109,7 +109,7 @@ Use this shape:
 
 | # | Claim under verification | Verdict | How observed | Check it yourself |
 | --- | --- | --- | --- | --- |
-| V1 | <one behavior or bug claim, stated so it can only be true or false> | holds / does not hold / not observed | <the runtime observation that decides it> | `<command that re-runs this check>` |
+| V1 | <one behavior or bug claim, stated so it can only be true or false> | holds / does not hold / not observed | <the deciding observation, or the required causal proof for a negative claim> | `<command that re-runs this check>` |
 
 Summary: <what holds; the deciding observation; every `does not hold` / `not observed` row and what it blocks>
 
@@ -157,7 +157,7 @@ three labels are not interchangeable:
 
 | Label | Use it when | Requires |
 | --- | --- | --- |
-| `holds` | you observed the behavior at runtime | the deciding observation *and* a command a reader can re-run |
+| `holds` | the required evidence establishes the claim | the deciding runtime observation, or for a negative claim the closure-window observation/causal proof, and a command a reader can re-run |
 | `does not hold` | you observed it failing, or observed the bug reproducing | the failing output, assertion diff, or error screenshot |
 | `not observed` | you never reached the check — blocked, out of scope, environment missing | a `Blockers` entry saying what stopped it |
 
@@ -167,6 +167,9 @@ unconfigured environment, name the service and the *variable names* that were mi
 
 The `Check it yourself` column exists so a reviewer can reproduce a row without reconstructing the run; if a row
 has no such command, say why in `How observed` rather than leaving it blank.
+
+For a negative claim supported by causal proof, `How observed` may cite the relevant source or contract locator
+instead of a runtime observation, but it must explain why execution cannot reach the forbidden side effect.
 
 ### Sections to drop when they don't apply
 
