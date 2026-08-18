@@ -165,34 +165,77 @@ echo "== eslint (project rule in eslint-rules/ vs userscript config in packages/
 git ls-files eslint-rules/; git grep -l "require-last-error-check" -- eslint.config.mjs; git ls-files packages/eslint/linter-config.ts
 ```
 
-Link integrity — confirm every relative markdown link resolves, across **every tracked Markdown file**
-(`git ls-files '*.md'`), not a fixed list that silently misses new files (`.github/*.md`, package/source
-READMEs, a newly added `docs/references/*.md`):
+Link integrity — confirm every relative markdown link resolves in the selected **committed tree**, across
+**every tracked Markdown file** (`git ls-tree`), not a fixed list that silently misses new files (`.github/*.md`,
+package/source READMEs, a newly added `docs/references/*.md`). Pass a commit, tag, or tree-ish explicitly when
+auditing a revision other than `HEAD`:
 
 ```bash
-git ls-files '*.md' | while IFS= read -r doc; do
-  # the sed pipeline drops fenced code blocks (``` and ~~~) and inline code spans first, so illustrative
-  # sample links inside ```md/~~~md snippets or `single-backtick` text (e.g.
-  # references/verification-report-template.md's screenshot/resource examples, verification.md's
-  # "Evidence location" spans) aren't false-flagged as broken
-  sed '/^```/,/^```/d; /^~~~/,/^~~~/d' "$doc" | sed -E 's/`[^`]*`//g' | grep -oE '\]\(([^)]+)\)' | sed -E 's/^\]\(|\)$//g' | grep -vE '^(https?:|mailto:|#|app:)' | while IFS= read -r link; do
-    link_doc="$doc"
-    if [ -L "$doc" ]; then
-      link_doc="$(dirname "$doc")/$(readlink "$doc")"
-    fi
-    target="$(dirname "$link_doc")/${link%%#*}"
-    [ -e "$target" ] && echo "ok     $doc → $link" || echo "BROKEN $doc → $link"
+tree="${1:-HEAD}"
+git rev-parse --verify "$tree^{commit}" >/dev/null
+
+normalize_path() {
+  local path="$1" out="" part
+  while [ -n "$path" ]; do
+    case "$path" in
+      */*) part="${path%%/*}"; path="${path#*/}" ;;
+      *) part="$path"; path="" ;;
+    esac
+    case "$part" in
+      ''|.) ;;
+      ..)
+        case "$out" in */*) out="${out%/*}" ;; *) out="" ;; esac
+        ;;
+      *) [ -n "$out" ] && out="$out/$part" || out="$part" ;;
+    esac
   done
-done
+  printf '%s' "$out"
+}
+
+resolve_source() {
+  local path="$1" mode target hops=0
+  while [ "$hops" -lt 20 ]; do
+    mode="$(git ls-tree "$tree" -- "$path" | awk 'NR == 1 { print $1 }')"
+    if [ "$mode" != 120000 ]; then
+      printf '%s' "$path"
+      return 0
+    fi
+    target="$(git show "$tree:$path" 2>/dev/null)" || return 1
+    path="$(normalize_path "$(dirname "$path")/$target")"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+status=0
+while IFS= read -r -d '' doc; do
+  if ! source_path="$(resolve_source "$doc")"; then
+    printf 'BROKEN %s → symlink target\n' "$doc"
+    status=1
+    continue
+  fi
+  # Drop fenced blocks and inline code so illustrative sample links are not false-flagged.
+  while IFS= read -r link; do
+    target="$(normalize_path "$(dirname "$source_path")/${link%%#*}")"
+    if git cat-file -e "$tree:$target" 2>/dev/null; then
+      printf 'ok     %s → %s\n' "$doc" "$link"
+    else
+      printf 'BROKEN %s → %s\n' "$doc" "$link"
+      status=1
+    fi
+  done < <(git show "$tree:$source_path" | sed '/^```/,/^```/d; /^~~~/,/^~~~/d' | sed -E 's/`[^`]*`//g' | grep -oE '\]\(([^)]+)\)' | sed -E 's/^\]\(|\)$//g' | grep -vE '^(https?:|mailto:|#|app:)' || true)
+done < <(git ls-tree -r -z --name-only "$tree" -- '*.md')
+
+exit "$status"
 ```
 
-Link integrity is a **best-effort signal**, not a proof of correctness: the shell pipeline above skips fenced
-and inline code, but it doesn't resolve reference-style links, complex Markdown link destinations, or GitHub's
-full heading-anchor slug rules. A clean run means no missing link *targets* were found — it does not mean every
-anchor fragment or every link's intent has been verified. Check changed fragment links by hand (or by rendering
-the page), especially around CJK text, punctuation, and duplicate-heading auto-suffixes (`#foo-1`). Only add an
-anchor when the link text explicitly points at one particular section; a link meant to reference the whole
-document should stay a file-level link without a fragment.
+Link integrity is a **best-effort signal**, not a proof of correctness: the script skips fenced and inline code,
+reference-style links, complex Markdown link destinations, and GitHub's full heading-anchor slug rules. A clean
+run means no missing link *targets* were found in the selected tree — it does not mean every anchor fragment or
+every link's intent has been verified. Check changed fragment links by hand (or by rendering the page), especially
+around CJK text, punctuation, and duplicate-heading auto-suffixes (`#foo-1`). Only add an anchor when the link text
+explicitly points at one particular section; a link meant to reference the whole document should stay a file-level
+link without a fragment.
 
 Duplicate headings (exact or near-duplicate H1/H2 text across files) are a **review queue item, not an
 auto-fix**: check inbound links and whether the duplication is actually confusing before renaming or merging
