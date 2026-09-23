@@ -1,0 +1,52 @@
+name: Validate private sandbox MessagePort
+
+on:
+  push:
+    branches:
+      - review/1747-private-sandbox-messageport-ci5
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Setup pnpm
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+        run: |
+          corepack enable
+          corepack install
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+      - name: Lint
+        run: pnpm lint:ci
+      - name: Focused unit tests
+        run: >
+          pnpm exec vitest run
+          packages/message/sandbox_message_channel.test.ts
+          src/app/service/sandbox/index.test.ts
+          src/app/service/sandbox/runtime.test.ts
+          src/app/service/offscreen/base.test.ts
+          src/app/service/offscreen/event_page_manager.test.ts
+          --reporter=dot
+      - name: Full unit tests
+        run: pnpm test:ci
+      - name: Install Playwright Chromium
+        run: pnpm test:e2e:install
+      - name: Build
+        run: pnpm build
+      - name: Focused Chromium E2E
+        run: >
+          pnpm exec playwright test
+          e2e/background-script.spec.ts
+          e2e/sandbox-message-port.spec.ts
+          --workers=1
