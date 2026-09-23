@@ -1,0 +1,206 @@
+name: Build PR1747 review package
+
+on:
+  push:
+    branches:
+      - review/1747-artifact-build
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build review package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="scriptcat-pr1747-private-event-review"
+          mkdir -p "$ROOT/patches" "$ROOT/docs"
+
+          git format-patch -1 --stdout 84ff4200c6c752275c0f50d4ce4ff6934e64494e > "$ROOT/patches/0001-refactor-message-hide-MAIN-bridge-behind-keyed-performance-events.patch"
+          git format-patch -1 --stdout 606be632ef93cebdafdf950f548a013c12395c00 > "$ROOT/patches/0002-refactor-main-world-remove-native-fallback-state-machine.patch"
+          git format-patch -1 --stdout 8803c8ee2cf768548e9f09228f5c865430cfada5 > "$ROOT/patches/0003-docs-message-document-keyed-MAIN-bridge-policy.patch"
+          git diff --binary c42f058183b8edbecced5836976a70a0b156fba9..8803c8ee2cf768548e9f09228f5c865430cfada5 > "$ROOT/patches/combined-c42f058-to-8803c8e.diff"
+
+          cp docs/references/main-world-message-privacy.md "$ROOT/docs/MAIN_WORLD_MESSAGE_PRIVACY.md"
+
+          cat > "$ROOT/README.md" <<'EOF'
+          # PR #1747 private MAIN-event bridge review package
+
+          This package is based on PR #1747 head:
+
+          - base reviewed head: `c42f058183b8edbecced5836976a70a0b156fba9`
+          - review branch final head: `8803c8ee2cf768548e9f09228f5c865430cfada5`
+          - source branch: `review/1747-private-event-bridge`
+
+          ## Commits
+
+          1. `84ff4200c6c752275c0f50d4ce4ff6934e64494e`
+             `refactor(message): hide MAIN bridge behind keyed performance events`
+
+             Replaces the generic MAIN↔isolated `window.postMessage` carrier with a
+             per-document random-key `performance.dispatchEvent(CustomEvent)` carrier while
+             retaining the strict envelope parser and downstream authorization checks.
+
+          2. `606be632ef93cebdafdf950f548a013c12395c00`
+             `refactor(main-world): remove native fallback state machine`
+
+             Removes MAIN native-port probing, bootstrap timeout, reconnect loop,
+             `createMainWorldPageLoadGate`, `pageLoadFallback`, and MAIN-only bootstrap
+             token selection. MAIN now has one bridge path. USER_SCRIPT native messaging and
+             its token-bound extension-port compatibility fallback remain.
+
+          3. `8803c8ee2cf768548e9f09228f5c865430cfada5`
+             `docs(message): document keyed MAIN bridge policy`
+
+             Renames `PageMessage` to `PageEventMessage` and documents the privacy and
+             fallback policy.
+
+          ## Apply
+
+          From a checkout at `c42f058183b8edbecced5836976a70a0b156fba9`:
+
+          ```bash
+          git am patches/0001-*.patch patches/0002-*.patch patches/0003-*.patch
+          ```
+
+          Or inspect/apply the direct combined diff:
+
+          ```bash
+          git apply --check patches/combined-c42f058-to-8803c8e.diff
+          git apply patches/combined-c42f058-to-8803c8e.diff
+          ```
+
+          ## Important test status
+
+          These commits were prepared as a review branch. They have **not** been claimed as
+          fully validated by local Chromium/Firefox E2E in the authoring environment. Run the
+          test plan in `TEST_PLAN.md` before moving them onto the PR branch.
+          EOF
+
+          cat > "$ROOT/TEST_PLAN.md" <<'EOF'
+          # Local agent test plan
+
+          ## 1. Static and focused unit checks
+
+          ```bash
+          pnpm install
+          pnpm exec prettier --check \
+            packages/message/page_event_message.ts \
+            packages/message/page_event_message.test.ts \
+            src/inject.ts \
+            src/scripting.ts \
+            src/app/service/content/scripting.ts \
+            src/app/service/content/user_script_connection.ts \
+            src/app/service/service_worker/runtime.ts
+
+          pnpm exec eslint \
+            packages/message/page_event_message.ts \
+            packages/message/page_event_message.test.ts \
+            src/inject.ts \
+            src/scripting.ts \
+            src/app/service/content/scripting.ts \
+            src/app/service/content/user_script_connection.ts
+
+          pnpm run typecheck
+
+          pnpm exec vitest run \
+            packages/message/page_event_message.test.ts \
+            src/app/service/content/user_script_connection.test.ts \
+            src/app/service/service_worker/runtime.test.ts \
+            src/app/service/content/page_rpc.test.ts \
+            src/app/service/content/script_runtime.test.ts \
+            --reporter=dot
+          ```
+
+          ## 2. Passive-disclosure browser witness
+
+          On an ordinary test page, install this listener before ScriptCat page traffic:
+
+          ```js
+          const leaked = [];
+          window.addEventListener("message", e => leaked.push(e.data));
+          window.__scWindowMessageLeaks = leaked;
+          ```
+
+          Run MAIN-world scripts that exercise:
+          - pageLoad
+          - GM_getValue / GM_setValue
+          - value-change callbacks
+          - event callbacks
+          - external.Scriptcat.isInstalled
+
+          Verify that ScriptCat's MAIN bridge envelopes do not appear in
+          `window.__scWindowMessageLeaks`.
+
+          Also verify that the userscripts still function.
+
+          ## 3. Random-key event behavior
+
+          Confirm that MAIN↔scripting traffic uses per-document keyed event names derived from
+          the negotiated event flag and that there is no wildcard `performance` listener in
+          ordinary page JS that can enumerate unknown event types.
+
+          Do **not** treat the key as an authorization secret. Attempt forged requests after
+          learning the key and verify that PageRpcRegistry / Service Worker binding, grant,
+          sequence and sender checks still reject unauthorized operations.
+
+          ## 4. MAIN-world functional E2E
+
+          Exercise at least:
+          - document-start / document-end / document-idle MAIN scripts
+          - BFCache restore
+          - navigation to a new document
+          - GM_getValue / GM_setValue / GM_deleteValue
+          - GM_xmlhttpRequest including abort/error paths
+          - menu/context-menu grants if available
+          - value listeners and notification/event callbacks
+          - CAT / external API paths that route through scripting
+
+          The deleted `main-world-fallback.spec.ts` should not be restored as a fallback test;
+          replace its coverage with a single-path MAIN bridge E2E if equivalent coverage is
+          needed.
+
+          ## 5. USER_SCRIPT regression
+
+          USER_SCRIPT is intentionally still native-first. Test:
+          - dedicated user-script listener path
+          - regular extension-port fallback when that listener capability is unavailable
+          - bootstrap token is document-bound
+          - reconnect and queued value updates
+          - wrong world / wrong URL / wrong tab-frame-document rejection
+
+          ## 6. Full project checks
+
+          ```bash
+          pnpm run test:ci
+          pnpm build
+          ```
+
+          Run the repository's Chromium E2E suite and, where available, Firefox/manual smoke
+          checks before pushing to PR #1747.
+
+          ## 7. Review invariants
+
+          Fail review if any of these regress:
+          - generic MAIN payloads return to `window.postMessage`
+          - MAIN regains native+fallback dual transport
+          - MAIN-only bootstrap timeout/reconnect/pageLoadFallback state returns
+          - USER_SCRIPT native compatibility fallback is accidentally removed
+          - execution binding / grant / sequence / real-sender validation is weakened
+          - live Document transport is reintroduced
+          EOF
+
+      - name: Upload review package
+        uses: actions/upload-artifact@v4
+        with:
+          name: scriptcat-pr1747-private-event-review
+          path: scriptcat-pr1747-private-event-review/
+          if-no-files-found: error
+          retention-days: 7
