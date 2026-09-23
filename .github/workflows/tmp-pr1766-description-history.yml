@@ -1,0 +1,41 @@
+name: Temporary PR 1766 description history
+
+on:
+  push:
+    branches:
+      - tmp/pr1766-description-history
+
+permissions:
+  contents: read
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query PR edit history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api graphql -f query='
+            query {
+              repository(owner: "scriptscat", name: "scriptcat") {
+                pullRequest(number: 1766) {
+                  body
+                  includesCreatedEdit
+                  lastEditedAt
+                  userContentEdits(first: 100) {
+                    totalCount
+                    nodes {
+                      id
+                      createdAt
+                      editedAt
+                      updatedAt
+                      editor { login }
+                      deletedAt
+                      diff
+                    }
+                  }
+                }
+              }
+            }
+          '
