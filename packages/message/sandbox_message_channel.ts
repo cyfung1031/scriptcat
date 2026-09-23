@@ -11,34 +11,16 @@ type SandboxChannelBootstrap = {
 
 const nativeReflectApply = Reflect.apply;
 const nativeFunctionBind = Function.prototype.bind;
-const nativeReflectOwnKeys = Reflect.ownKeys;
-const nativeObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const bindNative = <T extends (...args: any[]) => any>(fn: T, receiver: any): T =>
   nativeReflectApply(nativeFunctionBind, fn, [receiver]) as T;
 
-const BOOTSTRAP_KEYS = ["type", "version"] as const;
-
-export const parseSandboxChannelBootstrap = (value: unknown): SandboxChannelBootstrap | undefined => {
-  if (value === null || typeof value !== "object") return undefined;
-  try {
-    const keys = nativeReflectOwnKeys(value);
-    if (keys.length !== BOOTSTRAP_KEYS.length) return undefined;
-    for (let i = 0; i < keys.length; i += 1) {
-      if (keys[i] !== "type" && keys[i] !== "version") return undefined;
-    }
-    const type = nativeObjectGetOwnPropertyDescriptor(value, "type");
-    const version = nativeObjectGetOwnPropertyDescriptor(value, "version");
-    if (!type || !("value" in type) || !version || !("value" in version)) return undefined;
-    if (type.value !== SANDBOX_CHANNEL_BOOTSTRAP_TYPE || version.value !== SANDBOX_CHANNEL_BOOTSTRAP_VERSION) {
-      return undefined;
-    }
-    return {
-      type: SANDBOX_CHANNEL_BOOTSTRAP_TYPE,
-      version: SANDBOX_CHANNEL_BOOTSTRAP_VERSION,
-    };
-  } catch {
-    return undefined;
-  }
+const isSandboxChannelBootstrap = (value: unknown): value is SandboxChannelBootstrap => {
+  if (value === null || typeof value !== "object") return false;
+  const bootstrap = value as Record<string, unknown>;
+  return (
+    bootstrap.type === SANDBOX_CHANNEL_BOOTSTRAP_TYPE &&
+    bootstrap.version === SANDBOX_CHANNEL_BOOTSTRAP_VERSION
+  );
 };
 
 type PendingListeners = {
@@ -47,32 +29,29 @@ type PendingListeners = {
 };
 
 /**
- * Parent-side transport for Offscreen/EventPage ↔ Sandbox.
+ * Parent-side Offscreen/EventPage ↔ Sandbox transport.
  *
- * The Window "message" listener exists only until the sandbox transfers exactly one MessagePort.
- * After that first valid bootstrap the listener is removed permanently and all real payloads use
- * the private port. Source-window identity is checked before accepting the transferred capability.
+ * The Window listener exists only long enough to receive one MessagePort from the expected sandbox Window.
+ * All real payloads use that private port.
  */
 export class SandboxChannelHost implements Message {
   private readonly getTarget: () => Window;
-  private readonly removeWindowListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   private readonly bootstrapHandler: EventListener;
   private readonly pending: PendingListeners = { messages: [], connects: [] };
   private delegate?: MessagePortMessage;
   private readonly readyPromise: Promise<void>;
   private resolveReady!: () => void;
-  private disposed = false;
 
   constructor(sourceWindow: Window, target: Window | (() => Window)) {
     this.getTarget = typeof target === "function" ? target : () => target;
     const addWindowListener = bindNative(sourceWindow.addEventListener, sourceWindow);
-    this.removeWindowListener = bindNative(sourceWindow.removeEventListener, sourceWindow);
+    const removeWindowListener = bindNative(sourceWindow.removeEventListener, sourceWindow);
     this.readyPromise = new Promise<void>((resolve) => {
       this.resolveReady = resolve;
     });
 
     this.bootstrapHandler = ((event: MessageEvent) => {
-      if (this.disposed || this.delegate) return;
+      if (this.delegate) return;
 
       let expectedSource: Window;
       try {
@@ -81,12 +60,12 @@ export class SandboxChannelHost implements Message {
         return;
       }
       if (event.source !== expectedSource) return;
-      if (!parseSandboxChannelBootstrap(event.data)) return;
+      if (!isSandboxChannelBootstrap(event.data)) return;
       if (event.ports.length !== 1 || !event.ports[0]) return;
 
       const delegate = new MessagePortMessage(event.ports[0]);
       this.delegate = delegate;
-      this.removeWindowListener("message", this.bootstrapHandler);
+      removeWindowListener("message", this.bootstrapHandler);
 
       for (let i = 0; i < this.pending.messages.length; i += 1) {
         delegate.onMessage(this.pending.messages[i]);
@@ -106,24 +85,19 @@ export class SandboxChannelHost implements Message {
     return this.readyPromise;
   }
 
-  isReady(): boolean {
-    return this.delegate !== undefined;
-  }
-
   async connect(data: TMessage): Promise<MessageConnect> {
     await this.readyPromise;
-    if (this.disposed || !this.delegate) throw new Error("Sandbox channel is unavailable.");
+    if (!this.delegate) throw new Error("Sandbox channel is unavailable.");
     return this.delegate.connect(data);
   }
 
   async sendMessage<T = any>(data: TMessage): Promise<T> {
     await this.readyPromise;
-    if (this.disposed || !this.delegate) throw new Error("Sandbox channel is unavailable.");
+    if (!this.delegate) throw new Error("Sandbox channel is unavailable.");
     return this.delegate.sendMessage<T>(data);
   }
 
   onConnect(callback: OnConnectCallback): void {
-    if (this.disposed) throw new Error("SandboxChannelHost is disposed.");
     if (this.delegate) {
       this.delegate.onConnect(callback);
       return;
@@ -132,21 +106,11 @@ export class SandboxChannelHost implements Message {
   }
 
   onMessage(callback: OnMessageCallback): void {
-    if (this.disposed) throw new Error("SandboxChannelHost is disposed.");
     if (this.delegate) {
       this.delegate.onMessage(callback);
       return;
     }
     this.pending.messages.push(callback);
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    if (!this.delegate) this.removeWindowListener("message", this.bootstrapHandler);
-    this.pending.messages.length = 0;
-    this.pending.connects.length = 0;
-    this.delegate?.dispose();
   }
 }
 
@@ -156,11 +120,8 @@ export type SandboxChannelClient = {
 };
 
 /**
- * Sandbox-side channel factory.
- *
- * The private endpoint is created and wired before transfer. Call transferToParent() only after
- * the sandbox Server/Runtime listeners are installed; receiving the transferred port therefore
- * doubles as the parent's verified "sandbox ready" signal.
+ * Build the private channel inside the sandbox. transferToParent() is called only after Server/Runtime
+ * listeners are wired, so receiving the port is also the parent's sandbox-ready signal.
  */
 export const createSandboxChannelClient = (
   parentWindow: Window = parent,
