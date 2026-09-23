@@ -35,49 +35,37 @@ class MessagePortPostMessage implements PostMessage {
 /**
  * Message implementation backed by a private MessagePort.
  *
- * Unlike WindowMessage, traffic is delivered only to code holding the port reference; it is not
- * broadcast through the host Window's global "message" event. The wire envelope intentionally
- * stays compatible with WindowMessage so existing Server/Client/MessageConnect semantics remain
- * unchanged while the carrier is replaced.
+ * It keeps the existing WindowMessage envelope so Server/Client/MessageConnect behavior stays unchanged,
+ * but packets are visible only to code that holds the port reference.
  */
 export class MessagePortMessage implements Message {
   readonly EE = new EventEmitter<string, any>();
 
   private readonly target: PostMessage;
-  private readonly removeMessageListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
-  private readonly closePort: () => void;
-  private readonly messageHandler: EventListener;
-  private disposed = false;
 
-  constructor(private readonly port: MessagePort) {
+  constructor(port: MessagePort) {
     const addMessageListener = bindNative(port.addEventListener, port);
-    this.removeMessageListener = bindNative(port.removeEventListener, port);
     const startPort = bindNative(port.start, port);
-    this.closePort = bindNative(port.close, port);
     this.target = new MessagePortPostMessage(port);
-    this.messageHandler = ((event: MessageEvent) => {
-      this.messageHandle(event.data);
-    }) as EventListener;
-    addMessageListener("message", this.messageHandler);
+    addMessageListener(
+      "message",
+      ((event: MessageEvent) => {
+        this.messageHandle(event.data);
+      }) as EventListener
+    );
     startPort();
-  }
-
-  private assertOpen() {
-    if (this.disposed) {
-      throw new Error("MessagePortMessage is disposed.");
-    }
   }
 
   private messageHandle(value: unknown) {
     const data = parseWindowMessageBody(value);
-    if (!data || this.disposed) return;
+    if (!data) return;
 
     if (data.type === "sendMessage") {
       this.EE.emit(
         "message",
         data.data,
         (resp: any) => {
-          if (!data.messageId || this.disposed) return;
+          if (!data.messageId) return;
           this.target.postMessage({
             messageId: data.messageId,
             type: "respMessage",
@@ -98,12 +86,10 @@ export class MessagePortMessage implements Message {
   }
 
   onConnect(callback: OnConnectCallback): void {
-    this.assertOpen();
     this.EE.addListener("connect", callback);
   }
 
   connect(data: TMessage): Promise<MessageConnect> {
-    this.assertOpen();
     const messageId = uuidv4();
     this.target.postMessage({
       messageId,
@@ -114,38 +100,22 @@ export class MessagePortMessage implements Message {
   }
 
   onMessage(callback: OnMessageCallback): void {
-    this.assertOpen();
     this.EE.addListener("message", callback);
   }
 
   sendMessage<T = any>(data: TMessage): Promise<T> {
-    this.assertOpen();
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<T>((resolve) => {
       const messageId = uuidv4();
       const eventId = `response:${messageId}`;
-      const handler = (body: WindowMessageBody<T>) => {
+      this.EE.addListener(eventId, (body: WindowMessageBody<T>) => {
         this.EE.removeAllListeners(eventId);
         resolve(body.data as T);
-      };
-      this.EE.addListener(eventId, handler);
-      try {
-        this.target.postMessage({
-          messageId,
-          type: "sendMessage",
-          data,
-        } satisfies WindowMessageBody<TMessage>);
-      } catch (error) {
-        this.EE.removeAllListeners(eventId);
-        reject(error);
-      }
+      });
+      this.target.postMessage({
+        messageId,
+        type: "sendMessage",
+        data,
+      } satisfies WindowMessageBody<TMessage>);
     });
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.removeMessageListener("message", this.messageHandler);
-    this.EE.removeAllListeners();
-    this.closePort();
   }
 }
