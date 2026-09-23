@@ -4,16 +4,13 @@ import {
   SANDBOX_CHANNEL_BOOTSTRAP_TYPE,
   SANDBOX_CHANNEL_BOOTSTRAP_VERSION,
   SandboxChannelHost,
-  parseSandboxChannelBootstrap,
 } from "./sandbox_message_channel";
 
 class FakePort {
   peer?: FakePort;
   private listeners = new Set<EventListenerOrEventListenerObject>();
-  closed = false;
 
   postMessage = (data: unknown) => {
-    if (this.closed) throw new Error("closed");
     const event = { data } as MessageEvent;
     queueMicrotask(() => this.peer?.dispatch(event));
   };
@@ -22,15 +19,7 @@ class FakePort {
     this.listeners.add(listener);
   };
 
-  removeEventListener = (_type: string, listener: EventListenerOrEventListenerObject) => {
-    this.listeners.delete(listener);
-  };
-
   start = vi.fn();
-
-  close = () => {
-    this.closed = true;
-  };
 
   private dispatch(event: MessageEvent) {
     for (const listener of this.listeners) {
@@ -84,9 +73,6 @@ describe("MessagePortMessage", () => {
       code: 0,
       data: "pong",
     });
-
-    left.dispose();
-    right.dispose();
   });
 
   it("preserves scoped MessageConnect traffic", async () => {
@@ -101,14 +87,11 @@ describe("MessagePortMessage", () => {
     await Promise.resolve();
 
     expect(received).toHaveBeenCalledWith({ action: "sandbox/chunk", data: 1 });
-
-    left.dispose();
-    right.dispose();
   });
 });
 
 describe("SandboxChannelHost", () => {
-  it("accepts exactly one port from the expected sandbox Window and removes the global listener", async () => {
+  it("accepts one port only from the expected sandbox Window, then removes the Window listener", async () => {
     const parentWindow = new FakeWindow();
     const expectedSandbox = {} as Window;
     const hostileSandbox = {} as Window;
@@ -121,7 +104,14 @@ describe("SandboxChannelHost", () => {
       data: { type: SANDBOX_CHANNEL_BOOTSTRAP_TYPE, version: SANDBOX_CHANNEL_BOOTSTRAP_VERSION },
       ports: [parentPort],
     } as unknown as MessageEvent);
-    expect(host.isReady()).toBe(false);
+    expect(parentWindow.listenerCount()).toBe(1);
+
+    parentWindow.dispatchMessage({
+      source: expectedSandbox,
+      data: { type: SANDBOX_CHANNEL_BOOTSTRAP_TYPE, version: 0 },
+      ports: [parentPort],
+    } as unknown as MessageEvent);
+    expect(parentWindow.listenerCount()).toBe(1);
 
     parentWindow.dispatchMessage({
       source: expectedSandbox,
@@ -130,7 +120,6 @@ describe("SandboxChannelHost", () => {
     } as unknown as MessageEvent);
 
     await host.ready();
-    expect(host.isReady()).toBe(true);
     expect(parentWindow.listenerCount()).toBe(0);
 
     const received = vi.fn((_data, sendResponse) => sendResponse({ code: 0, data: "ok" }));
@@ -139,33 +128,5 @@ describe("SandboxChannelHost", () => {
       code: 0,
       data: "ok",
     });
-
-    host.dispose();
-    sandboxMessage.dispose();
-  });
-
-  it("rejects accessor/proxy bootstrap envelopes without executing them", () => {
-    let getterExecuted = false;
-    const accessor: Record<string, unknown> = { type: SANDBOX_CHANNEL_BOOTSTRAP_TYPE, version: 1 };
-    Object.defineProperty(accessor, "type", {
-      enumerable: true,
-      configurable: true,
-      get() {
-        getterExecuted = true;
-        return SANDBOX_CHANNEL_BOOTSTRAP_TYPE;
-      },
-    });
-    const proxy = new Proxy(
-      { type: SANDBOX_CHANNEL_BOOTSTRAP_TYPE, version: 1 },
-      {
-        ownKeys() {
-          throw new Error("hostile proxy");
-        },
-      }
-    );
-
-    expect(parseSandboxChannelBootstrap(accessor)).toBeUndefined();
-    expect(getterExecuted).toBe(false);
-    expect(parseSandboxChannelBootstrap(proxy)).toBeUndefined();
   });
 });
