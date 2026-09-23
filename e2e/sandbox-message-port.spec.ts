@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext } from "@playwright/test";
 import { testWithUserScripts as test, expect } from "./fixtures";
 import { autoApprovePermissions, installScriptByCode, openOptionsPage } from "./utils";
 
@@ -65,6 +65,7 @@ test.describe("private Offscreen/EventPage ↔ Sandbox MessagePort", () => {
     const victimName = `E2E sandbox victim ${token}`;
     const readyAttribute = `data-sc-${token}-spy-ready`;
     const countAttribute = `data-sc-${token}-window-message-count`;
+    const victimReadyAttribute = `data-sc-${token}-victim-ready`;
 
     const spyCode = `// ==UserScript==
 // @name         ${spyName}
@@ -106,9 +107,11 @@ const setMarker = (name, value) => {
 const sync = () => {
   setMarker(${JSON.stringify(readyAttribute)}, GM_getValue("spy-ready", false));
   setMarker(${JSON.stringify(countAttribute)}, GM_getValue("window-message-count", -1));
+  setMarker(${JSON.stringify(victimReadyAttribute)}, GM_getValue("victim-ready", false));
 };
 GM_addValueChangeListener("spy-ready", sync);
 GM_addValueChangeListener("window-message-count", sync);
+GM_addValueChangeListener("victim-ready", sync);
 sync();
 `;
 
@@ -117,9 +120,11 @@ sync();
 // @namespace    https://e2e.scriptcat.test/${token}/victim
 // @version      1.0.0
 // @background
-// @grant        none
+// @grant        GM_setValue
+// @storageName  ${storageName}
 // ==/UserScript==
 
+GM_setValue("victim-ready", true);
 return new Promise(() => {});
 `;
 
@@ -140,8 +145,7 @@ return new Promise(() => {});
       await installScriptByCode(context, extensionId, victimCode);
       await enableBackgroundScript(context, extensionId, victimName);
 
-      // Let several spy reporting intervals pass. The internal port traffic must stay invisible.
-      await page.waitForTimeout(1_000);
+      await expect(root).toHaveAttribute(victimReadyAttribute, "true", { timeout: 20_000 });
       await expect.poll(() => root.getAttribute(countAttribute), { timeout: 5_000 }).toBe("0");
     } finally {
       await page.close();
