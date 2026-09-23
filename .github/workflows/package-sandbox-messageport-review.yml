@@ -1,0 +1,223 @@
+name: Package private sandbox MessagePort review
+
+on:
+  push:
+    branches:
+      - review/1747-private-sandbox-messageport-package
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build review package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="29e2b88329316a4b33de6e46e265d79aad100edb"
+          FINAL_SHA="7c58ead072b28ec4f5bcfb70cdc55ce019daa003"
+          ROOT="scriptcat-pr1747-private-sandbox-messageport"
+
+          mkdir -p "$ROOT/patches" "$ROOT/docs"
+
+          git format-patch --output-directory "$ROOT/patches" "$BASE_SHA..$FINAL_SHA"
+          git diff --binary "$BASE_SHA..$FINAL_SHA" > "$ROOT/patches/combined-29e2b883-to-7c58ead0.diff"
+          git log --reverse --format='%H  %s' "$BASE_SHA..$FINAL_SHA" > "$ROOT/COMMITS.txt"
+          git diff --name-status "$BASE_SHA..$FINAL_SHA" > "$ROOT/CHANGED_FILES.txt"
+          git diff --stat "$BASE_SHA..$FINAL_SHA" > "$ROOT/DIFF_STAT.txt"
+
+          cp docs/references/sandbox-message-port-security.md "$ROOT/docs/SANDBOX_MESSAGE_PORT_SECURITY.md"
+          cp docs/architecture.md "$ROOT/docs/ARCHITECTURE.md"
+          cp docs/references/architecture-execution.md "$ROOT/docs/ARCHITECTURE_EXECUTION.md"
+          cp packages/message/README.md "$ROOT/docs/MESSAGE_LAYER_README.md"
+
+          cat > "$ROOT/README.md" <<'EOF'
+          # ScriptCat PR #1747 — Private Offscreen/EventPage ↔ Sandbox MessagePort review package
+
+          This package is an independent review branch based on PR #1747 head:
+
+          29e2b88329316a4b33de6e46e265d79aad100edb
+
+          Review branch:
+
+          review/1747-private-sandbox-messageport
+
+          Final review head:
+
+          7c58ead072b28ec4f5bcfb70cdc55ce019daa003
+
+          ## Problem
+
+          Background and scheduled userscripts execute inside src/sandbox.html and can register normal Window
+          message listeners. The old WindowMessage transport placed Offscreen/EventPage ↔ Sandbox internal
+          envelopes on that same global "message" bus, allowing a malicious background userscript to passively
+          observe unrelated lifecycle, GM, value/event and skill-script traffic.
+
+          ## New model
+
+          Chromium:
+          Service Worker -> Offscreen document -> one-shot MessagePort bootstrap -> sandbox.html -> private port
+
+          Firefox MV3:
+          Service Worker/EventPage -> one-shot MessagePort bootstrap -> sandbox.html -> same private port protocol
+
+          On both browsers the parent installs SandboxChannelHost before attaching the iframe. sandbox.ts creates
+          the MessageChannel, wires trusted Logger/Server/Runtime first, then transfers only the peer port.
+          Receiving the port is also the verified readiness signal. Only then does the parent tell the Service
+          Worker to replay enabled background/scheduled scripts and language state.
+
+          There is no second preparationSandbox RPC, health ping, or timeout path that reports an unavailable
+          sandbox as ready.
+
+          ## Security properties
+
+          - window.onmessage cannot receive real sandbox transport payloads after bootstrap.
+          - window.postMessage from a background userscript cannot inject into the private port.
+          - the parent accepts the bootstrap only from the exact current sandbox contentWindow.
+          - the bootstrap contains only type/version plus one transferred port; no script/GM payload.
+          - MessagePort keeps asynchronous structured-clone semantics.
+          - port methods are captured/bound before userscripts are replayed.
+          - the native MessageEvent.prototype.data getter is captured before userscripts, preventing later
+            same-realm getter poisoning from snooping payloads when trusted code reads the port event.
+          - the port is transport isolation, not final GM authorization; existing grants/identity/SW checks remain.
+
+          See docs/SANDBOX_MESSAGE_PORT_SECURITY.md for the detailed threat model and lifecycle.
+          EOF
+
+          cat > "$ROOT/APPLY.md" <<'EOF'
+          # Applying the review commits
+
+          The patch series is based on:
+
+          29e2b88329316a4b33de6e46e265d79aad100edb
+
+          Preferred:
+
+          git am patches/*.patch
+
+          Combined diff alternative:
+
+          git apply --check patches/combined-29e2b883-to-7c58ead0.diff
+          git apply patches/combined-29e2b883-to-7c58ead0.diff
+
+          Prefer git am for review because the commits separate transport, browser wiring, readiness tests,
+          browser E2E, hardening and documentation.
+          EOF
+
+          cat > "$ROOT/VALIDATION.md" <<'EOF'
+          # Validation performed
+
+          Code head validated:
+
+          e132e205c47eb99f7d9acc0cc2fe4aaabce63fb2
+
+          Final review head:
+
+          7c58ead072b28ec4f5bcfb70cdc55ce019daa003
+
+          The difference after the validated code head is documentation only.
+
+          GitHub Actions validation run:
+
+          https://github.com/cyfung1031/scriptcat/actions/runs/35915053916
+
+          Result: SUCCESS
+
+          Passed:
+          - pnpm lint:ci
+          - focused MessagePort/Sandbox/Offscreen/EventPage unit tests
+          - full pnpm test:ci
+          - production pnpm build
+          - Chromium Playwright background-script.spec.ts
+          - Chromium Playwright sandbox-message-port.spec.ts
+
+          Scope note:
+          A real Chromium browser E2E was run. The Firefox Event Page path uses the same SandboxChannelHost and is
+          covered by EventPage/offscreen unit tests locking listener-first/iframe-second construction and shared
+          MessageQueue behavior. A real Firefox MV3 browser E2E was not executed in this review environment.
+          Local review should therefore include a Firefox-specific pass before pushing to PR #1747.
+          EOF
+
+          cat > "$ROOT/REVIEW_CHECKLIST.md" <<'EOF'
+          # Agent / reviewer checklist
+
+          ## Global Window bus
+          - Install a malicious @background userscript with window.onmessage and addEventListener("message").
+          - Trigger enable/disable/run/value/event/GM traffic for other background scripts.
+          - Confirm no internal ScriptCat RPC envelope appears.
+
+          ## Same-realm prototype poisoning
+          - Replace MessageEvent.prototype.data after the malicious script starts.
+          - Confirm the poisoned getter never sees private-port envelopes.
+          - Replace MessagePort.prototype.postMessage/addEventListener/removeEventListener/start after startup and
+            verify the already-created channel still uses captured methods.
+
+          ## Injection
+          - Call window.postMessage with forged WindowMessage-like and sandbox-bootstrap-like envelopes.
+          - Confirm privileged Sandbox handlers do not receive them after bootstrap.
+          - Attempt a second transferred port after trusted bootstrap; the parent Window listener should be gone.
+
+          ## Bootstrap ordering
+          - Parent SandboxChannelHost exists before iframe attachment.
+          - Sandbox Server/Runtime is wired before peer-port transfer.
+          - Service Worker script replay occurs only after parent port acceptance.
+
+          ## Chromium
+          - Exercise offscreen creation/recreation.
+          - Enable/disable/run background scripts.
+          - Exercise GM storage, value listeners, event callbacks and DOM-dependent offscreen APIs.
+
+          ## Firefox MV3 Event Page
+          - Confirm event page installs SandboxChannelHost before attaching sandbox.
+          - Confirm cross-origin sandbox event.source equals the expected iframe contentWindow.
+          - Confirm shared MessageQueue still delivers enableScripts and setSandboxLanguage.
+          - Exercise background and crontab scripts and event-page recreation.
+
+          ## Failure behavior
+          - Break sandbox loading; parent must not claim verified readiness.
+          - Review iframe crash/reload behavior. Current design fails closed and expects a new parent lifecycle,
+            rather than reopening a permanent Window message bus.
+
+          ## Authorization
+          - Do not treat the MessagePort as final GM authorization.
+          - Re-check existing per-script grants, execution identity and Service Worker validation.
+          EOF
+
+          cat > "$ROOT/KNOWN_TRADEOFFS.md" <<'EOF'
+          # Known trade-offs / non-goals
+
+          1. One Window postMessage remains for bootstrap.
+             It transfers only protocol type/version plus one MessagePort. No script or GM payload is present.
+             targetOrigin "*" is required by the sandbox-origin model; sender identity is checked by exact
+             event.source === sandbox.contentWindow.
+
+          2. The private port is not an authorization token.
+             It isolates transport visibility/injection. Existing ScriptCat privilege checks remain authoritative.
+
+          3. Readiness fails closed.
+             The removed timeout-ready fallback no longer starts background execution without a verified channel.
+             A broken iframe/bootstrap therefore leaves background execution unavailable.
+
+          4. Crash/reload recovery is intentionally not another fallback bus.
+             Future recovery should create a fresh explicit channel lifecycle, not restore a permanent Window
+             "message" listener.
+
+          5. Same-realm hostile JavaScript still matters.
+             The transport captures port methods and MessageEvent.data before userscripts run. Future code should
+             avoid adding mutable-global/prototype lookups back into trusted message handling.
+          EOF
+
+      - name: Upload review package
+        uses: actions/upload-artifact@v6
+        with:
+          name: scriptcat-pr1747-private-sandbox-messageport
+          path: scriptcat-pr1747-private-sandbox-messageport/
+          if-no-files-found: error
+          retention-days: 7
