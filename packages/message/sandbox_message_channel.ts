@@ -63,10 +63,7 @@ export class SandboxChannelHost implements Message {
   private resolveReady!: () => void;
   private disposed = false;
 
-  constructor(
-    sourceWindow: Window,
-    target: Window | (() => Window)
-  ) {
+  constructor(sourceWindow: Window, target: Window | (() => Window)) {
     this.getTarget = typeof target === "function" ? target : () => target;
     const addWindowListener = bindNative(sourceWindow.addEventListener, sourceWindow);
     this.removeWindowListener = bindNative(sourceWindow.removeEventListener, sourceWindow);

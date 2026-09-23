@@ -5,7 +5,13 @@ import { Server } from "@Packages/message/server";
 import EventEmitter from "eventemitter3";
 import type { SandboxChannelHost } from "@Packages/message/sandbox_message_channel";
 import type { ServiceWorkerClient } from "../service_worker/client";
-import type { MessageConnect, MessageSend, OnConnectCallback, OnMessageCallback, TMessage } from "@Packages/message/types";
+import type {
+  MessageConnect,
+  MessageSend,
+  OnConnectCallback,
+  OnMessageCallback,
+  TMessage,
+} from "@Packages/message/types";
 import { BackgroundEnvManagerBase } from "./base";
 import { MessageQueueGroup, type IMessageQueue } from "@Packages/message/message_queue";
 import { SCRIPT_STATUS_ENABLE, SCRIPT_TYPE_BACKGROUND, type ScriptRunResource } from "@App/app/repo/scripts";
