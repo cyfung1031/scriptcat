@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext } from "@playwright/test";
 import { testWithUserScripts as test, expect } from "./fixtures";
 import { autoApprovePermissions, installScriptByCode, openOptionsPage } from "./utils";
 
@@ -65,6 +65,7 @@ test.describe("private Offscreen/EventPage ↔ Sandbox MessagePort", () => {
     const victimName = `E2E sandbox victim ${token}`;
     const readyAttribute = `data-sc-${token}-spy-ready`;
     const countAttribute = `data-sc-${token}-window-message-count`;
+    const victimReadyAttribute = `data-sc-${token}-victim-ready`;
 
     const spyCode = `// ==UserScript==
 // @name         ${spyName}
@@ -76,13 +77,14 @@ test.describe("private Offscreen/EventPage ↔ Sandbox MessagePort", () => {
 // ==/UserScript==
 
 const observed = [];
-const capture = (event) => observed.push(event.data);
+const capture = (event) => {
+  observed.push(event.data);
+  GM_setValue("window-message-count", observed.length);
+};
 window.addEventListener("message", capture);
 window.onmessage = capture;
+GM_setValue("window-message-count", 0);
 GM_setValue("spy-ready", true);
-setInterval(() => {
-  GM_setValue("window-message-count", observed.length);
-}, 250);
 return new Promise(() => {});
 `;
 
@@ -106,9 +108,11 @@ const setMarker = (name, value) => {
 const sync = () => {
   setMarker(${JSON.stringify(readyAttribute)}, GM_getValue("spy-ready", false));
   setMarker(${JSON.stringify(countAttribute)}, GM_getValue("window-message-count", -1));
+  setMarker(${JSON.stringify(victimReadyAttribute)}, GM_getValue("victim-ready", false));
 };
 GM_addValueChangeListener("spy-ready", sync);
 GM_addValueChangeListener("window-message-count", sync);
+GM_addValueChangeListener("victim-ready", sync);
 sync();
 `;
 
@@ -117,9 +121,11 @@ sync();
 // @namespace    https://e2e.scriptcat.test/${token}/victim
 // @version      1.0.0
 // @background
-// @grant        none
+// @grant        GM_setValue
+// @storageName  ${storageName}
 // ==/UserScript==
 
+GM_setValue("victim-ready", true);
 return new Promise(() => {});
 `;
 
@@ -140,8 +146,10 @@ return new Promise(() => {});
       await installScriptByCode(context, extensionId, victimCode);
       await enableBackgroundScript(context, extensionId, victimName);
 
-      // Let several spy reporting intervals pass. The internal port traffic must stay invisible.
-      await page.waitForTimeout(1_000);
+      // Wait for a real completion signal from the victim rather than sleeping. If any internal
+      // envelope leaked onto Window.message, the spy writes the non-zero count directly from
+      // its message handler, so victim-ready + count=0 proves lifecycle traffic stayed private.
+      await expect(root).toHaveAttribute(victimReadyAttribute, "true", { timeout: 20_000 });
       await expect.poll(() => root.getAttribute(countAttribute), { timeout: 5_000 }).toBe("0");
     } finally {
       await page.close();
