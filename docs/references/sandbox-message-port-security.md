@@ -179,7 +179,7 @@ The review branch contains:
   - one-port bootstrap;
   - Window listener removal;
   - accessor/proxy bootstrap rejection;
-  - poisoned `MessageEvent.prototype.data` regression.
+  - poisoned `MessageEvent.prototype.data` regression when the test DOM exposes the WebIDL getter.
 - `src/app/service/offscreen/base.test.ts`
   - no Service Worker readiness before port attachment;
   - script/language replay only after private-channel readiness.
@@ -188,6 +188,8 @@ The review branch contains:
 - `src/app/service/sandbox/index.test.ts`
   - no legacy readiness/health RPC.
 - `e2e/sandbox-message-port.spec.ts`
-  - a real background userscript installs `window.onmessage` and a `"message"` listener;
-  - another background script is installed/enabled to force real parent→sandbox lifecycle traffic;
-  - the spy confirms that no internal envelope appears on the Window bus.
+  - a real Chromium background userscript installs `window.onmessage` and a `"message"` listener;
+  - it also replaces the real browser `MessageEvent.prototype.data` getter with a snooping wrapper;
+  - another background script is installed/enabled to force real parent→sandbox lifecycle and GM storage traffic;
+  - the spy confirms that no internal envelope appears on the Window bus and the poisoned prototype getter never
+    observes a private-port envelope.

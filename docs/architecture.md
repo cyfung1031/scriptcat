@@ -143,7 +143,9 @@ already has DOM and plays the offscreen role directly.
   subsequent traffic. Receiving the port is also the only verified sandbox-readiness signal; only then does
   `BackgroundEnvManagerBase` call `preparationOffscreen({ verified: true })`, which lets the service worker replay
   enabled background/scheduled scripts and language state. There is no second `preparationSandbox` RPC, health
-  ping, or unverified timeout-ready path.
+  ping, or unverified timeout-ready path. The transport threat model, same-realm prototype hardening, failure
+  semantics, and verification matrix are documented in
+  [Private Offscreen/EventPage ↔ Sandbox MessagePort](./references/sandbox-message-port-security.md).
 
 Firefox packages use `incognito: "spanning"`, so normal and private page scripts share one event page but retain
 their own `sender.tab.incognito` value for global-switch checks, `@run-in`, and `GM_info.isIncognito`. Background
